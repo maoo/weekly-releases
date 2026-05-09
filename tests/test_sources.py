@@ -1,16 +1,43 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from urllib.parse import quote
 
+import httpx
 import pytest
-
 from weekly_releases.landscape import LandscapeIndex
 from weekly_releases.sources import (
     SourceContext,
+    _maven_pom_description,
+    _maven_pom_url,
+    _npm_version_description,
     crawl_docker_hub,
     crawl_github,
     crawl_maven,
     crawl_npm,
     crawl_pypi,
+    maven_solr_gav_timestamp_bounds,
 )
+
+_CTX_START = datetime(2026, 1, 1, tzinfo=UTC)
+_CTX_END = datetime(2026, 1, 10, tzinfo=UTC)
+
+
+def _solr_gav_select_key(*, start_row: int = 0, rows: int = 200) -> tuple:
+    lo, hi = maven_solr_gav_timestamp_bounds(_CTX_START, _CTX_END)
+    q = f"g:org.finos* AND timestamp:[{lo} TO {hi}]"
+    return (
+        "https://search.maven.org/solrsearch/select",
+        tuple(
+            sorted(
+                (
+                    ("core", "gav"),
+                    ("q", q),
+                    ("rows", rows),
+                    ("start", start_row),
+                    ("wt", "json"),
+                )
+            )
+        ),
+    )
 
 
 class FakeResponse:
@@ -40,11 +67,17 @@ class FakeClient:
 
 
 def build_context(fake_data, *, finos_repo_names: frozenset[str] | None = None):
-    idx = LandscapeIndex(repo_to_project={"repo": "Project"}, asset_to_project={"artifact": "Project"})
-    repos = finos_repo_names if finos_repo_names is not None else frozenset({"repo", "artifact"})
+    idx = LandscapeIndex(
+        repo_to_project={"repo": "Project"}, asset_to_project={"artifact": "Project"}
+    )
+    repos = (
+        finos_repo_names
+        if finos_repo_names is not None
+        else frozenset({"repo", "artifact"})
+    )
     return SourceContext(
-        start=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        end=datetime(2026, 1, 10, tzinfo=timezone.utc),
+        start=_CTX_START,
+        end=_CTX_END,
         landscape=idx,
         client=FakeClient(fake_data),
         finos_repo_names=repos,
@@ -99,29 +132,30 @@ def test_crawl_github_handles_unexpected_payload_shape():
 
 def test_crawl_maven_and_npm_and_docker():
     fake = {
-        (
-            "https://search.maven.org/solrsearch/select",
-            (("core", "ga"), ("q", "g:org.finos*"), ("rows", 200), ("start", 0), ("wt", "json")),
-        ): FakeResponse(
+        _solr_gav_select_key(): FakeResponse(
             json_data={
                 "response": {
                     "numFound": 1,
-                    "docs": [{"g": "org.finos", "a": "artifact", "latestVersion": "1.2.3"}],
+                    "docs": [
+                        {
+                            "g": "org.finos",
+                            "a": "artifact",
+                            "v": "1.2.3",
+                            "p": "jar",
+                            "timestamp": 1736072400000,
+                        }
+                    ],
                 }
             }
         ),
-        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Aartifact": FakeResponse(
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Aartifact/versions/1.2.3": FakeResponse(
             json_data={
-                "versions": [
-                    {
-                        "versionKey": {
-                            "system": "MAVEN",
-                            "name": "org.finos:artifact",
-                            "version": "1.2.3",
-                        },
-                        "publishedAt": "2026-01-05T12:00:00Z",
-                    }
-                ]
+                "versionKey": {
+                    "system": "MAVEN",
+                    "name": "org.finos:artifact",
+                    "version": "1.2.3",
+                },
+                "publishedAt": "2026-01-05T12:00:00Z",
             }
         ),
         (
@@ -155,7 +189,9 @@ def test_crawl_maven_and_npm_and_docker():
             json_data={"description": "Container image"}
         ),
         "https://hub.docker.com/v2/repositories/finos/artifact/tags?page_size=50": FakeResponse(
-            json_data={"results": [{"name": "latest", "last_updated": "2026-01-04T00:00:00Z"}]}
+            json_data={
+                "results": [{"name": "latest", "last_updated": "2026-01-04T00:00:00Z"}]
+            }
         ),
     }
     context = build_context(fake)
@@ -173,29 +209,30 @@ def test_crawl_maven_and_npm_and_docker():
 
 def test_crawl_maven_nested_group_id_pom_path():
     fake = {
-        (
-            "https://search.maven.org/solrsearch/select",
-            (("core", "ga"), ("q", "g:org.finos*"), ("rows", 200), ("start", 0), ("wt", "json")),
-        ): FakeResponse(
+        _solr_gav_select_key(): FakeResponse(
             json_data={
                 "response": {
                     "numFound": 1,
-                    "docs": [{"g": "org.finos.demo", "a": "lib", "latestVersion": "1.0.0"}],
+                    "docs": [
+                        {
+                            "g": "org.finos.demo",
+                            "a": "lib",
+                            "v": "1.0.0",
+                            "p": "jar",
+                            "timestamp": 1736072400000,
+                        }
+                    ],
                 }
             }
         ),
-        "https://api.deps.dev/v3/systems/maven/packages/org.finos.demo%3Alib": FakeResponse(
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos.demo%3Alib/versions/1.0.0": FakeResponse(
             json_data={
-                "versions": [
-                    {
-                        "versionKey": {
-                            "system": "MAVEN",
-                            "name": "org.finos.demo:lib",
-                            "version": "1.0.0",
-                        },
-                        "publishedAt": "2026-01-05T12:00:00Z",
-                    }
-                ]
+                "versionKey": {
+                    "system": "MAVEN",
+                    "name": "org.finos.demo:lib",
+                    "version": "1.0.0",
+                },
+                "publishedAt": "2026-01-05T12:00:00Z",
             }
         ),
         "https://repo1.maven.org/maven2/org/finos/demo/lib/1.0.0/lib-1.0.0.pom": FakeResponse(
@@ -207,6 +244,315 @@ def test_crawl_maven_nested_group_id_pom_path():
     assert len(mvn) == 1
     assert mvn[0].artifact == "org.finos.demo:lib"
     assert mvn[0].description == "nested"
+
+
+def test_maven_solr_gav_timestamp_bounds_includes_buffer():
+    lo, hi = maven_solr_gav_timestamp_bounds(_CTX_START, _CTX_END)
+    assert hi == int(_CTX_END.timestamp() * 1000)
+    assert lo < int(_CTX_START.timestamp() * 1000)
+
+
+def test_crawl_maven_solr_empty_falls_back_to_legacy_scan():
+    """Solr GAV succeeds but returns zero docs → enumerate GA (timestamps often lag)."""
+    fake = {
+        _solr_gav_select_key(): FakeResponse(
+            json_data={"response": {"numFound": 0, "docs": []}},
+        ),
+        (
+            "https://search.maven.org/solrsearch/select",
+            (
+                ("core", "ga"),
+                ("q", "g:org.finos*"),
+                ("rows", 200),
+                ("start", 0),
+                ("wt", "json"),
+            ),
+        ): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {"g": "org.finos", "a": "emptySolr", "latestVersion": "1.0.0"}
+                    ],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3AemptySolr": FakeResponse(
+            json_data={
+                "versions": [
+                    {
+                        "versionKey": {
+                            "system": "MAVEN",
+                            "name": "org.finos:emptySolr",
+                            "version": "1.0.0",
+                        },
+                        "publishedAt": "2026-01-05T12:00:00Z",
+                    }
+                ]
+            }
+        ),
+        "https://repo1.maven.org/maven2/org/finos/emptySolr/1.0.0/emptySolr-1.0.0.pom": FakeResponse(
+            text_data="<project><description>via legacy after empty GAV</description></project>"
+        ),
+    }
+    context = build_context(fake)
+    rels = crawl_maven(context)
+    assert len(rels) == 1
+    assert rels[0].artifact == "org.finos:emptySolr"
+    assert rels[0].description == "via legacy after empty GAV"
+
+
+def test_crawl_maven_solr_dedupes_identical_gav_triples():
+    fake = {
+        _solr_gav_select_key(): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 2,
+                    "docs": [
+                        {
+                            "g": "org.finos",
+                            "a": "dup",
+                            "v": "1.0.0",
+                            "p": "jar",
+                            "timestamp": 1,
+                        },
+                        {
+                            "g": "org.finos",
+                            "a": "dup",
+                            "v": "1.0.0",
+                            "p": "pom",
+                            "timestamp": 2,
+                        },
+                    ],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Adup/versions/1.0.0": FakeResponse(
+            json_data={
+                "versionKey": {
+                    "system": "MAVEN",
+                    "name": "org.finos:dup",
+                    "version": "1.0.0",
+                },
+                "publishedAt": "2026-01-05T12:00:00Z",
+            }
+        ),
+        "https://repo1.maven.org/maven2/org/finos/dup/1.0.0/dup-1.0.0.pom": FakeResponse(
+            text_data="<project><description>dup one</description></project>"
+        ),
+    }
+    context = build_context(fake)
+    rels = crawl_maven(context)
+    assert len(rels) == 1
+    assert rels[0].version == "1.0.0"
+
+
+def test_crawl_maven_filters_using_deps_getversion_not_solr_row_time():
+    """Solr supplies candidates; authoritative ``publishedAt`` comes from deps.dev."""
+    fake = {
+        _solr_gav_select_key(): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {
+                            "g": "org.finos",
+                            "a": "late",
+                            "v": "2.0.0",
+                            "p": "jar",
+                            "timestamp": 1,
+                        }
+                    ],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Alate/versions/2.0.0": FakeResponse(
+            json_data={
+                "versionKey": {
+                    "system": "MAVEN",
+                    "name": "org.finos:late",
+                    "version": "2.0.0",
+                },
+                "publishedAt": "2026-02-01T12:00:00Z",
+            }
+        ),
+    }
+    context = build_context(fake)
+    assert crawl_maven(context) == []
+
+
+def test_crawl_maven_solr_http_error_falls_back_to_legacy_scan():
+    fake = {
+        _solr_gav_select_key(): FakeResponse(status_code=503, json_data={}),
+        (
+            "https://search.maven.org/solrsearch/select",
+            (
+                ("core", "ga"),
+                ("q", "g:org.finos*"),
+                ("rows", 200),
+                ("start", 0),
+                ("wt", "json"),
+            ),
+        ): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [{"g": "org.finos", "a": "leg", "latestVersion": "0.1.0"}],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Aleg": FakeResponse(
+            json_data={
+                "versions": [
+                    {
+                        "versionKey": {
+                            "system": "MAVEN",
+                            "name": "org.finos:leg",
+                            "version": "0.1.0",
+                        },
+                        "publishedAt": "2026-01-05T12:00:00Z",
+                    }
+                ]
+            }
+        ),
+        "https://repo1.maven.org/maven2/org/finos/leg/0.1.0/leg-0.1.0.pom": FakeResponse(
+            text_data="<project><description>legacy path</description></project>"
+        ),
+    }
+    context = build_context(fake)
+    rels = crawl_maven(context)
+    assert len(rels) == 1
+    assert rels[0].artifact == "org.finos:leg"
+    assert rels[0].description == "legacy path"
+
+
+def test_crawl_maven_getversion_404_skips_candidate():
+    fake = {
+        _solr_gav_select_key(): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [
+                        {
+                            "g": "org.finos",
+                            "a": "ghost",
+                            "v": "1.0.0",
+                            "p": "jar",
+                            "timestamp": 1,
+                        }
+                    ],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Aghost/versions/1.0.0": FakeResponse(
+            status_code=404, json_data={}
+        ),
+    }
+    context = build_context(fake)
+    assert crawl_maven(context) == []
+
+
+def test_crawl_maven_solr_non_dict_json_falls_back_to_legacy_scan():
+    fake = {
+        _solr_gav_select_key(): FakeResponse(json_data=[]),
+        (
+            "https://search.maven.org/solrsearch/select",
+            (
+                ("core", "ga"),
+                ("q", "g:org.finos*"),
+                ("rows", 200),
+                ("start", 0),
+                ("wt", "json"),
+            ),
+        ): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [{"g": "org.finos", "a": "ndj", "latestVersion": "0.3.0"}],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Andj": FakeResponse(
+            json_data={
+                "versions": [
+                    {
+                        "versionKey": {
+                            "system": "MAVEN",
+                            "name": "org.finos:ndj",
+                            "version": "0.3.0",
+                        },
+                        "publishedAt": "2026-01-05T12:00:00Z",
+                    }
+                ]
+            }
+        ),
+        "https://repo1.maven.org/maven2/org/finos/ndj/0.3.0/ndj-0.3.0.pom": FakeResponse(
+            text_data="<project><description>ndjson</description></project>"
+        ),
+    }
+    context = build_context(fake)
+    rels = crawl_maven(context)
+    assert len(rels) == 1
+    assert rels[0].artifact == "org.finos:ndj"
+
+
+def test_crawl_maven_solr_hit_cap_falls_back_to_legacy_scan():
+    fake = {
+        _solr_gav_select_key(): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 30_000,
+                    "docs": [
+                        {
+                            "g": "org.finos",
+                            "a": "x",
+                            "v": "9.9.9",
+                            "p": "jar",
+                            "timestamp": 1,
+                        }
+                    ],
+                }
+            }
+        ),
+        (
+            "https://search.maven.org/solrsearch/select",
+            (
+                ("core", "ga"),
+                ("q", "g:org.finos*"),
+                ("rows", 200),
+                ("start", 0),
+                ("wt", "json"),
+            ),
+        ): FakeResponse(
+            json_data={
+                "response": {
+                    "numFound": 1,
+                    "docs": [{"g": "org.finos", "a": "cap", "latestVersion": "0.2.0"}],
+                }
+            }
+        ),
+        "https://api.deps.dev/v3/systems/maven/packages/org.finos%3Acap": FakeResponse(
+            json_data={
+                "versions": [
+                    {
+                        "versionKey": {
+                            "system": "MAVEN",
+                            "name": "org.finos:cap",
+                            "version": "0.2.0",
+                        },
+                        "publishedAt": "2026-01-05T12:00:00Z",
+                    }
+                ]
+            }
+        ),
+        "https://repo1.maven.org/maven2/org/finos/cap/0.2.0/cap-0.2.0.pom": FakeResponse(
+            text_data="<project><description>cap fallback</description></project>"
+        ),
+    }
+    context = build_context(fake)
+    rels = crawl_maven(context)
+    assert len(rels) == 1
+    assert rels[0].artifact == "org.finos:cap"
 
 
 def test_crawl_npm_search_empty_body_raises_clear_error():
@@ -260,9 +606,55 @@ def test_crawl_pypi():
 
 def test_crawl_pypi_skips_missing_package():
     fake = {
-        "https://pypi.org/user/finos/": FakeResponse(text_data='<a href="/project/missing/">x</a>'),
-        "https://pypi.org/pypi/missing/json": FakeResponse(status_code=404, json_data={}),
+        "https://pypi.org/user/finos/": FakeResponse(
+            text_data='<a href="/project/missing/">x</a>'
+        ),
+        "https://pypi.org/pypi/missing/json": FakeResponse(
+            status_code=404, json_data={}
+        ),
     }
     context = build_context(fake)
     assert crawl_pypi(context) == []
 
+
+def test_maven_pom_description_non_200_returns_none():
+    pom_url = _maven_pom_url("org.finos.demo", "lib", "1.0.0")
+    client = FakeClient({pom_url: FakeResponse(status_code=404)})
+    assert _maven_pom_description(client, "org.finos.demo", "lib", "1.0.0") is None
+
+
+def test_maven_pom_description_strips_cdata():
+    pom_url = _maven_pom_url("org.finos.demo", "lib", "1.0.0")
+    client = FakeClient(
+        {
+            pom_url: FakeResponse(
+                text_data=(
+                    "<project><description>"
+                    "<![CDATA[  Hello CDATA  ]]>"
+                    "</description></project>"
+                )
+            )
+        }
+    )
+    assert (
+        _maven_pom_description(client, "org.finos.demo", "lib", "1.0.0")
+        == "Hello CDATA"
+    )
+
+
+def test_maven_pom_description_http_error_returns_none():
+    pom_url = _maven_pom_url("org.finos.demo", "lib", "1.0.0")
+
+    class ErrClient:
+        def get(self, *args, **kwargs):
+            raise httpx.RequestError("x", request=httpx.Request("GET", pom_url))
+
+    assert _maven_pom_description(ErrClient(), "org.finos.demo", "lib", "1.0.0") is None
+
+
+def test_npm_version_description_invalid_json_returns_none():
+    pkg = quote("@finos/pkg", safe="")
+    ver = quote("1.0.0", safe="")
+    url = f"https://registry.npmjs.org/{pkg}/{ver}"
+    client = FakeClient({url: FakeResponse(text_data="not json")})
+    assert _npm_version_description(client, "@finos/pkg", "1.0.0") is None

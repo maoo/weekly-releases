@@ -1,13 +1,28 @@
-name: Weekly FINOS scan
+name: FINOS releases CI
 
 on:
+  push:
   schedule:
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
 jobs:
-  scan:
+  lint-test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        run: uv sync --all-extras
+      - name: Lint (ruff + black)
+        run: uv run ruff check weekly_releases tests && uv run black --check weekly_releases tests
+      - name: Test
+        run: uv run pytest
+
+  weekly-scan:
+    runs-on: ubuntu-latest
+    needs: lint-test
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
     steps:
@@ -28,4 +43,3 @@ jobs:
           git add .
           git commit -m "Update weekly FINOS releases"
           git push
-

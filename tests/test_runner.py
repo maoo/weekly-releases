@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from weekly_releases.models import Release
@@ -20,7 +20,9 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(
         "weekly_releases.runner.fetch_all_finos_repo_names", lambda _c: frozenset()
     )
-    monkeypatch.setattr("weekly_releases.runner.load_landscape", lambda _=None: object())
+    monkeypatch.setattr(
+        "weekly_releases.runner.load_landscape", lambda _=None: object()
+    )
     monkeypatch.setattr("weekly_releases.runner.httpx.Client", _Client)
 
 
@@ -39,7 +41,7 @@ def test_current_week_write_writes_single_week_file(monkeypatch, tmp_path: Path)
                 artifact="a",
                 version="v2",
                 url="https://e/2",
-                released_at=datetime(2026, 1, 8, tzinfo=timezone.utc),
+                released_at=datetime(2026, 1, 8, tzinfo=UTC),
             ),
         ]
 
@@ -60,14 +62,19 @@ def test_current_week_write_writes_single_week_file(monkeypatch, tmp_path: Path)
 
     assert captured["start"] == "2026-01-05"
     assert captured["end"] == "2026-01-08"
-    assert [p.name for p in result.output_files] == ["02.md"]
+    assert [p.name for p in result.output_files] == ["02.html"]
     assert result.output_files[0].exists()
     assert "v2" in result.output_files[0].read_text(encoding="utf-8")
     assert len(result.releases) == 1
     assert any("Current week only" in msg for msg in messages)
+    index = tmp_path / "index.html"
+    assert index.exists()
+    assert 'href="2026/02.html"' in index.read_text(encoding="utf-8")
 
 
-def test_current_week_write_does_not_touch_other_week_files(monkeypatch, tmp_path: Path):
+def test_current_week_write_does_not_touch_other_week_files(
+    monkeypatch, tmp_path: Path
+):
     """Backfill path would write W01+W02 when missing; current-week only writes W02."""
     _patch_common(monkeypatch)
 
@@ -84,8 +91,8 @@ def test_current_week_write_does_not_touch_other_week_files(monkeypatch, tmp_pat
         current_week_only=True,
     )
 
-    assert [p.name for p in result.output_files] == ["02.md"]
-    assert not (tmp_path / "2026" / "01.md").exists()
+    assert [p.name for p in result.output_files] == ["02.html"]
+    assert not (tmp_path / "2026" / "01.html").exists()
 
 
 def test_dry_run_returns_only_current_week(monkeypatch, tmp_path: Path):
@@ -103,7 +110,7 @@ def test_dry_run_returns_only_current_week(monkeypatch, tmp_path: Path):
                 artifact="a",
                 version="v",
                 url="https://e",
-                released_at=datetime(2026, 1, 7, 12, tzinfo=timezone.utc),
+                released_at=datetime(2026, 1, 7, 12, tzinfo=UTC),
             )
         ]
 
@@ -145,7 +152,7 @@ def test_write_run_creates_one_file_per_missing_week(monkeypatch, tmp_path: Path
                 artifact="a",
                 version="v1",
                 url="https://e/1",
-                released_at=datetime(2026, 1, 2, tzinfo=timezone.utc),  # W01
+                released_at=datetime(2026, 1, 2, tzinfo=UTC),  # W01
             ),
             Release(
                 project="P",
@@ -153,7 +160,7 @@ def test_write_run_creates_one_file_per_missing_week(monkeypatch, tmp_path: Path
                 artifact="a",
                 version="v2",
                 url="https://e/2",
-                released_at=datetime(2026, 1, 8, tzinfo=timezone.utc),  # W02
+                released_at=datetime(2026, 1, 8, tzinfo=UTC),  # W02
             ),
         ]
 
@@ -166,10 +173,10 @@ def test_write_run_creates_one_file_per_missing_week(monkeypatch, tmp_path: Path
     result = run(output_dir=tmp_path, today=date(2026, 1, 8), dry_run=False)
 
     # Today is W02; W01 and W02 are both missing -> two files written.
-    assert [p.name for p in result.output_files] == ["01.md", "02.md"]
+    assert [p.name for p in result.output_files] == ["01.html", "02.html"]
     assert all(p.exists() for p in result.output_files)
-    assert (tmp_path / "2026" / "01.md").read_text(encoding="utf-8").count("v1") == 1
-    assert (tmp_path / "2026" / "02.md").read_text(encoding="utf-8").count("v2") == 1
+    assert (tmp_path / "2026" / "01.html").read_text(encoding="utf-8").count("v1") == 1
+    assert (tmp_path / "2026" / "02.html").read_text(encoding="utf-8").count("v2") == 1
     # Crawl range spans from W01 start through end of today.
     assert captured["start"] == "2025-12-29"
     assert captured["end"] == "2026-01-08"
@@ -179,7 +186,7 @@ def test_write_run_skips_existing_weeks(monkeypatch, tmp_path: Path):
     _patch_common(monkeypatch)
 
     # W01 already exists; only W02 should be written.
-    existing = tmp_path / "2026" / "01.md"
+    existing = tmp_path / "2026" / "01.html"
     existing.parent.mkdir(parents=True, exist_ok=True)
     existing.write_text("preexisting", encoding="utf-8")
 
@@ -197,7 +204,7 @@ def test_write_run_skips_existing_weeks(monkeypatch, tmp_path: Path):
 
     result = run(output_dir=tmp_path, today=date(2026, 1, 8), dry_run=False)
 
-    assert [p.name for p in result.output_files] == ["02.md"]
+    assert [p.name for p in result.output_files] == ["02.html"]
     # Existing W01 was not overwritten.
     assert existing.read_text(encoding="utf-8") == "preexisting"
     # Crawl starts at the earliest missing week (W02 -> Mon 2026-01-05).
@@ -221,7 +228,7 @@ def test_write_run_skips_when_all_weeks_present(monkeypatch, tmp_path: Path):
 
     # Pre-populate W01 and W02.
     for week in ("01", "02"):
-        path = tmp_path / "2026" / f"{week}.md"
+        path = tmp_path / "2026" / f"{week}.html"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("done", encoding="utf-8")
 
@@ -237,6 +244,10 @@ def test_write_run_skips_when_all_weeks_present(monkeypatch, tmp_path: Path):
     assert result.releases == []
     assert crawled["called"] is False
     assert any("nothing to do" in msg for msg in messages)
+    idx = tmp_path / "index.html"
+    assert idx.exists()
+    text = idx.read_text(encoding="utf-8")
+    assert 'href="2026/01.html"' in text and 'href="2026/02.html"' in text
 
 
 def test_write_run_writes_empty_files_for_weeks_with_no_releases(
@@ -252,9 +263,27 @@ def test_write_run_writes_empty_files_for_weeks_with_no_releases(
     result = run(output_dir=tmp_path, today=date(2026, 1, 8), dry_run=False)
 
     # W01 and W02 are missing; both should be written, both empty.
-    assert [p.name for p in result.output_files] == ["01.md", "02.md"]
+    assert [p.name for p in result.output_files] == ["01.html", "02.html"]
     for path in result.output_files:
         assert "No releases found" in path.read_text(encoding="utf-8")
+
+
+def test_write_run_markdown_format_when_requested(monkeypatch, tmp_path: Path):
+    _patch_common(monkeypatch)
+
+    monkeypatch.setattr("weekly_releases.runner.crawl_github", lambda ctx: [])
+    monkeypatch.setattr("weekly_releases.runner.crawl_maven", lambda ctx: [])
+    monkeypatch.setattr("weekly_releases.runner.crawl_npm", lambda ctx: [])
+    monkeypatch.setattr("weekly_releases.runner.crawl_pypi", lambda ctx: [])
+    monkeypatch.setattr("weekly_releases.runner.crawl_docker_hub", lambda ctx: [])
+
+    result = run(
+        output_dir=tmp_path,
+        today=date(2026, 1, 8),
+        dry_run=False,
+        output_format="md",
+    )
+    assert [p.name for p in result.output_files] == ["01.md", "02.md"]
 
 
 def test_run_continues_after_source_failure(monkeypatch, tmp_path: Path):

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Callable, Iterator
 
 import httpx
 
@@ -24,8 +24,9 @@ from weekly_releases.sources import (
     crawl_npm,
     crawl_pypi,
 )
-from weekly_releases.storage import write_weekly_file
+from weekly_releases.storage import write_releases_index, write_weekly_file
 from weekly_releases.timebox import (
+    OutputFormat,
     current_week_bounds,
     iso_week_bounds,
     iso_week_file,
@@ -142,17 +143,18 @@ def _build_context(
         landscape=landscape,
         client=client,
         finos_repo_names=finos_repos,
+        progress=report,
     )
 
 
 def _missing_weeks(
-    output_dir: Path, today: date
+    output_dir: Path, today: date, output_format: OutputFormat
 ) -> list[tuple[int, int]]:
-    """ISO weeks from EPOCH_DATE through ``today`` that lack a markdown file."""
+    """ISO weeks from EPOCH_DATE through ``today`` that lack an output file for ``output_format``."""
     missing: list[tuple[int, int]] = []
     for year, week in iso_weeks_between(EPOCH_DATE, today):
         target = date.fromisocalendar(year, week, 1)
-        if not iso_week_file(output_dir, target).exists():
+        if not iso_week_file(output_dir, target, output_format=output_format).exists():
             missing.append((year, week))
     return missing
 
@@ -180,14 +182,26 @@ def run(
     landscape_source: str | None = None,
     progress: Callable[[str], None] | None = None,
     current_week_only: bool = False,
+    *,
+    output_format: OutputFormat = "html",
 ) -> RunResult:
     report = progress or (lambda _msg: None)
 
     if dry_run:
         return _run_dry(output_dir, today, landscape_source, report)
     if current_week_only:
-        return _run_current_week_write(output_dir, today, landscape_source, report)
-    return _run_write(output_dir, today, landscape_source, report)
+        result = _run_current_week_write(
+            output_dir, today, landscape_source, report, output_format=output_format
+        )
+        idx = write_releases_index(output_dir)
+        report(f"Updated {idx}")
+        return result
+    result = _run_write(
+        output_dir, today, landscape_source, report, output_format=output_format
+    )
+    idx = write_releases_index(output_dir)
+    report(f"Updated {idx}")
+    return result
 
 
 def _run_dry(
@@ -213,6 +227,8 @@ def _run_current_week_write(
     today: date,
     landscape_source: str | None,
     report: Callable[[str], None],
+    *,
+    output_format: OutputFormat,
 ) -> RunResult:
     start, end = current_week_bounds(today)
     iso = today.isocalendar()
@@ -227,7 +243,9 @@ def _run_current_week_write(
 
     weekly = _releases_in_iso_week(all_releases, iso.year, iso.week)
     target_monday = date.fromisocalendar(iso.year, iso.week, 1)
-    output_file = write_weekly_file(output_dir, target_monday, weekly)
+    output_file = write_weekly_file(
+        output_dir, target_monday, weekly, output_format=output_format
+    )
     report(f"Wrote {len(weekly)} releases to {output_file}")
     return RunResult(output_files=[output_file], releases=weekly)
 
@@ -237,8 +255,10 @@ def _run_write(
     today: date,
     landscape_source: str | None,
     report: Callable[[str], None],
+    *,
+    output_format: OutputFormat,
 ) -> RunResult:
-    missing = _missing_weeks(output_dir, today)
+    missing = _missing_weeks(output_dir, today, output_format)
     if not missing:
         report(
             f"All weeks from {EPOCH_DATE.isoformat()} through "
@@ -255,7 +275,7 @@ def _run_write(
     latest_year, latest_week = missing[-1]
     global_start, _ = iso_week_bounds(earliest_year, earliest_week)
     _, latest_week_end = iso_week_bounds(latest_year, latest_week)
-    today_end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
+    today_end = datetime.combine(today, datetime.max.time(), tzinfo=UTC)
     global_end = min(latest_week_end, today_end)
 
     report(
@@ -273,7 +293,9 @@ def _run_write(
     for year, week in missing:
         weekly = buckets.get((year, week), [])
         target = date.fromisocalendar(year, week, 1)
-        output_file = write_weekly_file(output_dir, target, weekly)
+        output_file = write_weekly_file(
+            output_dir, target, weekly, output_format=output_format
+        )
         output_files.append(output_file)
         report(f"Wrote {len(weekly)} releases to {output_file}")
 

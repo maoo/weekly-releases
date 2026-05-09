@@ -1,2 +1,1 @@
 """Weekly releases crawler package."""
-

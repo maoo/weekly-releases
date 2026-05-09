@@ -1,6 +1,5 @@
 import httpx
 import pytest
-
 from weekly_releases.runner import fetch_all_finos_repo_names
 
 
@@ -10,7 +9,9 @@ def test_fetch_repos_raises_helpful_error_on_403_without_token(monkeypatch):
 
     class Client:
         def get(self, url: str, headers=None):
-            return httpx.Response(403, request=httpx.Request("GET", url), json={"message": "rate limit"})
+            return httpx.Response(
+                403, request=httpx.Request("GET", url), json={"message": "rate limit"}
+            )
 
     with pytest.raises(RuntimeError, match="GITHUB_TOKEN"):
         fetch_all_finos_repo_names(Client())

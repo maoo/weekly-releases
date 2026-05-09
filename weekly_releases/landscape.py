@@ -7,7 +7,9 @@ from typing import Any
 import httpx
 import yaml
 
-LANDSCAPE_URL = "https://raw.githubusercontent.com/finos/finos-landscape/main/landscape.yml"
+LANDSCAPE_URL = (
+    "https://raw.githubusercontent.com/finos/finos-landscape/main/landscape.yml"
+)
 
 _ASSET_KEYS = ("maven", "npm", "pypi", "docker", "packages", "artifacts", "docker_hub")
 
@@ -17,6 +19,7 @@ class LandscapeIndex:
     repo_to_project: dict[str, str] = field(default_factory=dict)
     asset_to_project: dict[str, str] = field(default_factory=dict)
     asset_to_repo: dict[str, str] = field(default_factory=dict)
+    maven_group_prefixes: list[tuple[str, str]] = field(default_factory=list)
 
     def project_for_repo(self, repo: str) -> str:
         return self.repo_to_project.get(repo, "Unknown")
@@ -26,6 +29,30 @@ class LandscapeIndex:
 
     def repo_for_asset(self, asset: str) -> str | None:
         return self.asset_to_repo.get(asset)
+
+    def project_for_maven_group_id(self, group_id: str) -> str:
+        """Map a Maven ``groupId`` to a landscape card using ``maven_groupid`` prefixes.
+
+        Registered prefixes come from each card's outer mapping, nested ``item``, or
+        ``extra`` (upstream YAML often uses ``extra.maven_groupid``).
+
+        A row matches when ``group_id`` equals a registered prefix or starts with
+        ``prefix + "."``. When several prefixes match, the **longest** prefix wins.
+        """
+        gid = group_id.strip()
+        if not gid:
+            return "Unknown"
+        best_len = -1
+        best_project = "Unknown"
+        for prefix, project in self.maven_group_prefixes:
+            pre = prefix.strip()
+            if not pre:
+                continue
+            if gid == pre or gid.startswith(pre + "."):
+                if len(pre) > best_len:
+                    best_len = len(pre)
+                    best_project = project
+        return best_project
 
 
 def _item_dict(node: dict[str, Any]) -> dict[str, Any]:
@@ -80,6 +107,48 @@ def _repo_urls_from_node(node: dict[str, Any]) -> list[str]:
     return urls
 
 
+def _card_surface_dicts(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Surfaces that carry FINOS card metadata: outer mapping, nested ``item``, and ``extra``.
+
+    Upstream ``landscape.yml`` often places ``maven_groupid`` under ``extra`` (e.g. VUU, CDM)
+    rather than at the card root.
+    """
+    surfaces: list[dict[str, Any]] = []
+    seen: set[int] = set()
+
+    def add(d: dict[str, Any]) -> None:
+        i = id(d)
+        if i not in seen:
+            seen.add(i)
+            surfaces.append(d)
+
+    add(node)
+    item = _item_dict(node)
+    if item:
+        add(item)
+    for base in (node, item):
+        extra = base.get("extra") if isinstance(base, dict) else None
+        if isinstance(extra, dict):
+            add(extra)
+    return surfaces
+
+
+def _collect_maven_group_ids(container: dict[str, Any]) -> list[str]:
+    value = container.get("maven_groupid")
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    if isinstance(value, list):
+        out: list[str] = []
+        for x in value:
+            if isinstance(x, (str, int, float)):
+                s = str(x).strip()
+                if s:
+                    out.append(s)
+        return out
+    return []
+
+
 def _collect_from_asset_fields(container: dict[str, Any]) -> list[str]:
     assets: list[str] = []
     for key in _ASSET_KEYS:
@@ -132,7 +201,9 @@ def _pick_repo_for_asset_key(asset_key: str, repo_slugs: set[str]) -> str | None
     return best
 
 
-def _register_node_with_project(node: dict[str, Any], project: str, index: LandscapeIndex) -> None:
+def _register_node_with_project(
+    node: dict[str, Any], project: str, index: LandscapeIndex
+) -> None:
     repo_slugs: set[str] = set()
     for url in _repo_urls_from_node(node):
         slug = _repo_name_from_url(url)
@@ -140,7 +211,7 @@ def _register_node_with_project(node: dict[str, Any], project: str, index: Lands
             repo_slugs.add(slug)
             index.repo_to_project[slug] = project
 
-    containers = [node, _item_dict(node)]
+    containers = _card_surface_dicts(node)
     raw_assets: list[str] = []
     for c in containers:
         raw_assets.extend(_collect_from_asset_fields(c))
@@ -156,8 +227,14 @@ def _register_node_with_project(node: dict[str, Any], project: str, index: Lands
             if guessed:
                 index.asset_to_repo[key] = guessed
 
+    for c in containers:
+        for gid in _collect_maven_group_ids(c):
+            index.maven_group_prefixes.append((gid, project))
 
-def _walk_landscape(node: Any, parent_project: str | None, index: LandscapeIndex) -> None:
+
+def _walk_landscape(
+    node: Any, parent_project: str | None, index: LandscapeIndex
+) -> None:
     if isinstance(node, list):
         for el in node:
             _walk_landscape(el, parent_project, index)

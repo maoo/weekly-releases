@@ -119,3 +119,87 @@ landscape:
     assert index.project_for_asset("finos/legend-studio") == "Legend"
     assert index.repo_for_asset("legend-studio") == "legend-studio"
 
+
+def test_parse_landscape_maven_groupid_maps_nested_groups():
+    raw = """
+landscape:
+  items:
+    - name: VUU
+      item:
+        repo_url: https://github.com/finos/vuu
+      maven_groupid: "org.finos.vuu"
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_maven_group_id("org.finos.vuu") == "VUU"
+    assert index.project_for_maven_group_id("org.finos.vuu.plugin") == "VUU"
+    assert index.project_for_maven_group_id("org.finos.cdm") == "Unknown"
+
+
+def test_parse_landscape_maven_groupid_under_extra_like_upstream_fin_os_yaml():
+    """FINOS upstream places ``maven_groupid`` under ``extra`` on many cards."""
+    raw = """
+landscape:
+  items:
+    - name: VUU
+      item:
+      repo_url: https://github.com/finos/vuu
+      extra:
+        lead: example
+        maven_groupid: "org.finos.vuu"
+    - name: Common Domain Model
+      item:
+      repo_url: https://github.com/finos/common-domain-model
+      extra:
+        maven_groupid: "org.finos.cdm"
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_maven_group_id("org.finos.vuu") == "VUU"
+    assert index.project_for_maven_group_id("org.finos.vuu.plugin") == "VUU"
+    assert index.project_for_maven_group_id("org.finos.cdm") == "Common Domain Model"
+    assert index.project_for_maven_group_id("org.finos.cdm.foo") == "Common Domain Model"
+
+
+def test_project_for_maven_group_id_empty_and_whitespace_unknown():
+    index = parse_landscape("""
+landscape:
+  items:
+    - name: X
+      repo_url: https://github.com/finos/x
+      maven_groupid: "org.finos.x"
+""")
+    assert index.project_for_maven_group_id("") == "Unknown"
+    assert index.project_for_maven_group_id("  ") == "Unknown"
+
+
+def test_parse_landscape_maven_groupid_list_form():
+    raw = """
+landscape:
+  items:
+    - name: Multi
+      repo_url: https://github.com/finos/multi
+      maven_groupid:
+        - "org.finos.multi.core"
+        - "   "
+        - "org.finos.multi"
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_maven_group_id("org.finos.multi.core.extra") == "Multi"
+    assert index.project_for_maven_group_id("org.finos.multi.depot") == "Multi"
+
+
+def test_project_for_maven_group_id_longest_prefix_wins():
+    raw = """
+landscape:
+  items:
+    - name: Legend
+      item:
+        repo_url: https://github.com/finos/legend
+      maven_groupid: "org.finos.legend"
+    - name: Whole Org
+      item:
+        repo_url: https://github.com/finos/toolbox
+      maven_groupid: "org.finos"
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_maven_group_id("org.finos.legend.depot") == "Legend"
+    assert index.project_for_maven_group_id("org.finos.toolbox") == "Whole Org"

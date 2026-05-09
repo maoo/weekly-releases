@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FINOS weekly releases</title>
+<style>
+
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 1.5rem clamp(1rem, 4vw, 2.5rem) 3rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  background: linear-gradient(165deg, #eef2ff 0%, var(--bg) 38%, var(--bg) 100%);
+  min-height: 100vh;
+}
+.wrap { max-width: 52rem; margin: 0 auto; }
+header { margin-bottom: 1.75rem; }
+header h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.year-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.15rem 1.15rem;
+  margin-bottom: 1rem;
+}
+.year-block h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+.week-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+}
+.week-links a {
+  display: inline-block;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+.week-links a:hover {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
+.empty-year {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>FINOS weekly releases</h1>
+<p>Browse reports by ISO calendar year and week (<code>YYYY/WW.html</code>).</p>
+</header>
+<main>
+<section class="year-block">
+<h2>2026</h2>
+<ul class="week-links">
+<li><a href="2026/01.html">Week 01</a></li><li><a href="2026/02.html">Week 02</a></li><li><a href="2026/03.html">Week 03</a></li><li><a href="2026/04.html">Week 04</a></li><li><a href="2026/05.html">Week 05</a></li><li><a href="2026/06.html">Week 06</a></li><li><a href="2026/07.html">Week 07</a></li><li><a href="2026/08.html">Week 08</a></li><li><a href="2026/09.html">Week 09</a></li><li><a href="2026/10.html">Week 10</a></li><li><a href="2026/11.html">Week 11</a></li><li><a href="2026/12.html">Week 12</a></li><li><a href="2026/13.html">Week 13</a></li><li><a href="2026/14.html">Week 14</a></li><li><a href="2026/15.html">Week 15</a></li><li><a href="2026/16.html">Week 16</a></li><li><a href="2026/17.html">Week 17</a></li><li><a href="2026/18.html">Week 18</a></li><li><a href="2026/19.html">Week 19</a></li>
+</ul>
+</section>
+</main>
+</div>
+</body>
+</html>

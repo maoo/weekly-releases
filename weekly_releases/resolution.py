@@ -70,6 +70,8 @@ def resolve_project_and_repo(
     landscape: LandscapeIndex,
     finos_repos: frozenset[str],
     lookup_keys: list[str],
+    *,
+    maven_group_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Return (project display name, github repo slug without org prefix)."""
     project = "Unknown"
@@ -117,6 +119,11 @@ def resolve_project_and_repo(
 
     if project == "Unknown" and repo_slug:
         project = repo_slug.replace("-", " ").title()
+
+    if maven_group_id:
+        mp = landscape.project_for_maven_group_id(maven_group_id)
+        if mp != "Unknown":
+            project = mp
 
     # When we know the GitHub org repo slug, the FINOS landscape ``repo_to_project`` mapping (card
     # ``name`` for any card that lists that repo) overrides heuristics and the title-cased fallback.

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from weekly_releases.timebox import (
@@ -10,13 +10,18 @@ from weekly_releases.timebox import (
 )
 
 
-def test_iso_week_file():
+def test_iso_week_file_default_is_html():
     path = iso_week_file(Path("releases"), date(2026, 1, 8))
+    assert str(path).endswith("2026/02.html")
+
+
+def test_iso_week_file_markdown():
+    path = iso_week_file(Path("releases"), date(2026, 1, 8), output_format="md")
     assert str(path).endswith("2026/02.md")
 
 
 def test_release_iso_week_matches_utc_isocalendar():
-    dt = datetime(2026, 1, 8, 15, 30, tzinfo=timezone.utc)
+    dt = datetime(2026, 1, 8, 15, 30, tzinfo=UTC)
     assert release_iso_week(dt) == (2026, 2)
 
 

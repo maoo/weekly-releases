@@ -1,24 +1,46 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 import json
 import re
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from weekly_releases.github_auth import github_api_headers
 from weekly_releases.description_text import normalize_release_description
+from weekly_releases.github_auth import github_api_headers
 from weekly_releases.landscape import LandscapeIndex
 from weekly_releases.models import Release
 from weekly_releases.resolution import full_github_name, resolve_project_and_repo
 
+# Solr ``core=gav`` ``timestamp`` window is widened backward so laggy indexing still surfaces
+# candidates; release times are still taken from deps.dev (per-version ``publishedAt``).
+MAVEN_SOLR_DISCOVERY_BUFFER_DAYS = 14
+# If Solr returns more raw rows than this, fall back to the legacy per-coordinate scan to avoid
+# tens of thousands of deps.dev GetVersion calls in one run.
+MAVEN_SOLR_GAV_MAX_RAW_HITS = 25_000
+
+
+def maven_solr_gav_timestamp_bounds(
+    start: datetime,
+    end: datetime,
+    *,
+    buffer_days: int = MAVEN_SOLR_DISCOVERY_BUFFER_DAYS,
+) -> tuple[int, int]:
+    """Milliseconds ``[lower, upper]`` for Solr ``timestamp`` range queries (``core=gav``)."""
+    lower = start - timedelta(days=buffer_days)
+    lower_ms = int(lower.timestamp() * 1000)
+    upper_ms = int(end.timestamp() * 1000)
+    return lower_ms, upper_ms
+
 
 def _parse_iso_datetime(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
 
 def _in_range(ts: datetime, start: datetime, end: datetime) -> bool:
@@ -27,7 +49,10 @@ def _in_range(ts: datetime, start: datetime, end: datetime) -> bool:
 
 def _maven_pom_url(group_id: str, artifact: str, version: str) -> str:
     """Central Repository path: group dots become directories."""
-    rel = "/".join(group_id.split(".")) + f"/{quote(artifact, safe='.-_')}/{quote(version, safe='.-_')}/{artifact}-{version}.pom"
+    rel = (
+        "/".join(group_id.split("."))
+        + f"/{quote(artifact, safe='.-_')}/{quote(version, safe='.-_')}/{artifact}-{version}.pom"
+    )
     return f"https://repo1.maven.org/maven2/{rel}"
 
 
@@ -38,7 +63,9 @@ def _maven_search_artifact_url(group_id: str, artifact: str, version: str) -> st
     return f"https://search.maven.org/artifact/{g}/{a}/{v}/jar"
 
 
-def _maven_pom_description(client: httpx.Client, group_id: str, artifact: str, version: str) -> str | None:
+def _maven_pom_description(
+    client: httpx.Client, group_id: str, artifact: str, version: str
+) -> str | None:
     url = _maven_pom_url(group_id, artifact, version)
     try:
         resp = client.get(url)
@@ -55,7 +82,9 @@ def _maven_pom_description(client: httpx.Client, group_id: str, artifact: str, v
         return None
 
 
-def _npm_version_description(client: httpx.Client, package_name: str, version: str) -> str | None:
+def _npm_version_description(
+    client: httpx.Client, package_name: str, version: str
+) -> str | None:
     enc_pkg = quote(package_name, safe="")
     enc_ver = quote(version, safe="")
     try:
@@ -81,6 +110,7 @@ class SourceContext:
     landscape: LandscapeIndex
     client: httpx.Client
     finos_repo_names: frozenset[str] = field(default_factory=frozenset)
+    progress: Callable[[str], None] | None = None
 
 
 def crawl_github(context: SourceContext) -> list[Release]:
@@ -138,7 +168,13 @@ def crawl_github(context: SourceContext) -> list[Release]:
     return releases
 
 
-def _iter_maven_finos_ga_docs(client: httpx.Client, *, rows: int = 200, max_pages: int = 50):
+def _iter_maven_finos_ga_docs(
+    client: httpx.Client,
+    *,
+    progress: Callable[[str], None] | None = None,
+    rows: int = 200,
+    max_pages: int = 50,
+):
     """Yield Solr ``core=ga`` rows: one row per Maven coordinate (groupId + artifactId).
 
     ``search.maven.org`` ``core=gav`` timestamps lag badly (often months behind Central), so we
@@ -172,8 +208,17 @@ def _iter_maven_finos_ga_docs(client: httpx.Client, *, rows: int = 200, max_page
             break
         yield from docs
         start_row += len(docs)
+        if progress and isinstance(num_found, int):
+            progress(f"Maven: Central coordinate list {start_row}/{num_found}")
         if isinstance(num_found, int) and start_row >= num_found:
             break
+
+
+def _maven_deps_dev_headers() -> dict[str, str]:
+    return {
+        "User-Agent": "weekly-releases (FINOS release crawler; +https://github.com/finos)",
+        "Accept": "application/json",
+    }
 
 
 def _maven_versions_from_deps_dev(
@@ -182,12 +227,8 @@ def _maven_versions_from_deps_dev(
     """Return (version, published_at_utc) from deps.dev for a Maven coordinate."""
     enc = quote(f"{group_id}:{artifact_id}", safe="")
     url = f"https://api.deps.dev/v3/systems/maven/packages/{enc}"
-    headers = {
-        "User-Agent": "weekly-releases (FINOS release crawler; +https://github.com/finos)",
-        "Accept": "application/json",
-    }
     try:
-        resp = client.get(url, headers=headers)
+        resp = client.get(url, headers=_maven_deps_dev_headers())
     except httpx.HTTPError:
         return []
     if resp.status_code != 200:
@@ -218,20 +259,155 @@ def _maven_versions_from_deps_dev(
     return out
 
 
-def _maven_releases_for_ga_row(context: SourceContext, ga_doc: dict[str, Any]) -> list[Release]:
+def _maven_published_at_from_deps_dev_version(
+    client: httpx.Client, group_id: str, artifact_id: str, version: str
+) -> datetime | None:
+    """Return ``publishedAt`` (UTC) for a single Maven version from deps.dev GetVersion."""
+    enc_pkg = quote(f"{group_id}:{artifact_id}", safe="")
+    enc_ver = quote(version, safe="")
+    url = f"https://api.deps.dev/v3/systems/maven/packages/{enc_pkg}/versions/{enc_ver}"
+    try:
+        resp = client.get(url, headers=_maven_deps_dev_headers())
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    published = data.get("publishedAt")
+    if not isinstance(published, str):
+        return None
+    try:
+        return _parse_iso_datetime(published)
+    except (ValueError, TypeError):
+        return None
+
+
+def _maven_fetch_solr_gav_timestamp_page(
+    client: httpx.Client,
+    *,
+    start_row: int,
+    rows: int,
+    lower_ms: int,
+    upper_ms: int,
+) -> tuple[list[dict[str, Any]], int] | None:
+    """One Solr ``core=gav`` page for ``org.finos*`` artifacts in a ``timestamp`` window.
+
+    Returns ``(docs, num_found)`` or ``None`` if the request is unusable (HTTP/JSON/shape).
+    """
+    q = f"g:org.finos* AND timestamp:[{lower_ms} TO {upper_ms}]"
+    try:
+        resp = client.get(
+            "https://search.maven.org/solrsearch/select",
+            params={
+                "q": q,
+                "start": start_row,
+                "rows": rows,
+                "wt": "json",
+                "core": "gav",
+            },
+        )
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    response = data.get("response")
+    if not isinstance(response, dict):
+        return None
+    docs = response.get("docs", [])
+    num_found = response.get("numFound", 0)
+    if not isinstance(docs, list) or not isinstance(num_found, int):
+        return None
+    clean_docs: list[dict[str, Any]] = [d for d in docs if isinstance(d, dict)]
+    return clean_docs, num_found
+
+
+def _maven_collect_gav_triples_from_solr(
+    client: httpx.Client,
+    lower_ms: int,
+    upper_ms: int,
+    *,
+    progress: Callable[[str], None] | None = None,
+    rows: int = 200,
+) -> list[tuple[str, str, str]] | None:
+    """Collect unique ``(groupId, artifactId, version)`` from Solr GAV timestamp discovery.
+
+    Returns ``None`` if Solr cannot be read (caller should fall back to the legacy crawl).
+    """
+    start_row = 0
+    num_found: int | None = None
+    seen: dict[tuple[str, str, str], None] = {}
+    while True:
+        page = _maven_fetch_solr_gav_timestamp_page(
+            client, start_row=start_row, rows=rows, lower_ms=lower_ms, upper_ms=upper_ms
+        )
+        if page is None:
+            return None
+        docs, nf = page
+        if num_found is None:
+            num_found = nf
+            if num_found > MAVEN_SOLR_GAV_MAX_RAW_HITS:
+                if progress:
+                    progress(
+                        "Maven: Solr GAV hit count exceeds cap "
+                        f"({num_found} > {MAVEN_SOLR_GAV_MAX_RAW_HITS}); "
+                        "falling back to full coordinate scan"
+                    )
+                return None
+        for doc in docs:
+            g = doc.get("g")
+            a = doc.get("a")
+            v = doc.get("v")
+            if (
+                not isinstance(g, str)
+                or not isinstance(a, str)
+                or not isinstance(v, str)
+            ):
+                continue
+            key = (g, a, v)
+            if key not in seen:
+                seen[key] = None
+        start_row += len(docs)
+        if progress and num_found is not None:
+            progress(f"Maven: Solr GAV timestamp window {start_row}/{num_found}")
+        if not docs or (num_found is not None and start_row >= num_found):
+            break
+    return list(seen.keys())
+
+
+def _maven_releases_for_ga_row(
+    context: SourceContext, ga_doc: dict[str, Any]
+) -> list[Release]:
     group_id = ga_doc.get("g")
     artifact_id = ga_doc.get("a")
     if not isinstance(group_id, str) or not isinstance(artifact_id, str):
         return []
     keys = [artifact_id, f"{group_id}:{artifact_id}", group_id]
     project, slug = resolve_project_and_repo(
-        context.landscape, context.finos_repo_names, keys
+        context.landscape,
+        context.finos_repo_names,
+        keys,
+        maven_group_id=group_id,
     )
     releases: list[Release] = []
-    for version, when in _maven_versions_from_deps_dev(context.client, group_id, artifact_id):
+    for version, when in _maven_versions_from_deps_dev(
+        context.client, group_id, artifact_id
+    ):
         if not _in_range(when, context.start, context.end):
             continue
-        pom_desc = _maven_pom_description(context.client, group_id, artifact_id, version)
+        pom_desc = _maven_pom_description(
+            context.client, group_id, artifact_id, version
+        )
         releases.append(
             Release(
                 project=project,
@@ -247,16 +423,143 @@ def _maven_releases_for_ga_row(context: SourceContext, ga_doc: dict[str, Any]) -
     return releases
 
 
-def crawl_maven(context: SourceContext) -> list[Release]:
-    packages = [d for d in _iter_maven_finos_ga_docs(context.client) if isinstance(d, dict)]
+def _maven_releases_for_gav_triple(
+    context: SourceContext, group_id: str, artifact_id: str, version: str
+) -> list[Release]:
+    """Build zero or one ``Release`` for a ``(groupId, artifactId, version)`` using deps.dev GetVersion."""
+    when = _maven_published_at_from_deps_dev_version(
+        context.client, group_id, artifact_id, version
+    )
+    if when is None or not _in_range(when, context.start, context.end):
+        return []
+    keys = [artifact_id, f"{group_id}:{artifact_id}", group_id]
+    project, slug = resolve_project_and_repo(
+        context.landscape,
+        context.finos_repo_names,
+        keys,
+        maven_group_id=group_id,
+    )
+    pom_desc = _maven_pom_description(context.client, group_id, artifact_id, version)
+    return [
+        Release(
+            project=project,
+            source="maven",
+            artifact=f"{group_id}:{artifact_id}",
+            version=version,
+            url=_maven_search_artifact_url(group_id, artifact_id, version),
+            released_at=when,
+            github_repo=full_github_name(slug),
+            description=normalize_release_description(pom_desc),
+        )
+    ]
+
+
+def _crawl_maven_legacy_full_scan(context: SourceContext) -> list[Release]:
+    """Enumerate every ``org.finos*`` GA coordinate and scan all versions via deps.dev GetPackage."""
+    prog = context.progress
+    packages = [
+        d
+        for d in _iter_maven_finos_ga_docs(context.client, progress=prog)
+        if isinstance(d, dict)
+    ]
     if not packages:
         return []
-    workers = min(12, max(1, len(packages)))
+    total = len(packages)
+    workers = min(12, max(1, total))
+    if prog:
+        prog(
+            f"Maven: querying deps.dev + POMs for {total} coordinates "
+            f"({workers} parallel workers)"
+        )
     releases: list[Release] = []
+    progress_interval = max(1, min(80, total // 12))
+    completed = 0
+    lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(_maven_releases_for_ga_row, context, doc) for doc in packages]
+        futures = [
+            pool.submit(_maven_releases_for_ga_row, context, doc) for doc in packages
+        ]
         for fut in as_completed(futures):
-            releases.extend(fut.result())
+            batch = fut.result()
+            with lock:
+                releases.extend(batch)
+                completed += 1
+                n_rel = len(releases)
+                if prog and (
+                    completed == 1
+                    or completed == total
+                    or completed % progress_interval == 0
+                ):
+                    pct = 100 * completed // total
+                    prog(
+                        f"Maven: coordinates {completed}/{total} ({pct}%), "
+                        f"{n_rel} release(s) in crawl window so far"
+                    )
+    releases.sort(key=lambda r: r.released_at)
+    return releases
+
+
+def crawl_maven(context: SourceContext) -> list[Release]:
+    prog = context.progress
+    lower_ms, upper_ms = maven_solr_gav_timestamp_bounds(context.start, context.end)
+    if prog:
+        prog(
+            "Maven: Solr GAV timestamp discovery "
+            f"(buffer {MAVEN_SOLR_DISCOVERY_BUFFER_DAYS}d before crawl start)"
+        )
+    triples = _maven_collect_gav_triples_from_solr(
+        context.client,
+        lower_ms,
+        upper_ms,
+        progress=prog,
+    )
+    if triples is None:
+        if prog:
+            prog(
+                "Maven: Solr GAV discovery failed or exceeded cap; full coordinate scan"
+            )
+        return _crawl_maven_legacy_full_scan(context)
+    if not triples:
+        # Solr ``core=gav`` timestamps often lag badly; a successful query with zero docs is
+        # common for recent crawl windows even when Central has fresh artifacts. Enumerate GA.
+        if prog:
+            prog(
+                "Maven: Solr GAV timestamp window returned no hits; "
+                "full coordinate scan (core=ga + deps.dev)"
+            )
+        return _crawl_maven_legacy_full_scan(context)
+    total = len(triples)
+    workers = min(12, max(1, total))
+    if prog:
+        prog(
+            f"Maven: deps.dev GetVersion + POMs for {total} unique releases "
+            f"({workers} parallel workers)"
+        )
+    releases: list[Release] = []
+    progress_interval = max(1, min(80, total // 12))
+    completed = 0
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(_maven_releases_for_gav_triple, context, g, a, v)
+            for g, a, v in triples
+        ]
+        for fut in as_completed(futures):
+            batch = fut.result()
+            with lock:
+                releases.extend(batch)
+                completed += 1
+                n_rel = len(releases)
+                if prog and (
+                    completed == 1
+                    or completed == total
+                    or completed % progress_interval == 0
+                ):
+                    pct = 100 * completed // total
+                    prog(
+                        f"Maven: GAV keys {completed}/{total} ({pct}%), "
+                        f"{n_rel} release(s) in crawl window so far"
+                    )
     releases.sort(key=lambda r: r.released_at)
     return releases
 
@@ -403,7 +706,9 @@ def crawl_pypi(context: SourceContext) -> list[Release]:
 
 
 def crawl_docker_hub(context: SourceContext) -> list[Release]:
-    repos = context.client.get("https://hub.docker.com/v2/repositories/finos/?page_size=100").json()
+    repos = context.client.get(
+        "https://hub.docker.com/v2/repositories/finos/?page_size=100"
+    ).json()
     if not isinstance(repos, dict):
         return []
     releases: list[Release] = []
@@ -411,15 +716,17 @@ def crawl_docker_hub(context: SourceContext) -> list[Release]:
         name = entry.get("name")
         if not isinstance(name, str):
             continue
-        repo_resp = context.client.get(f"https://hub.docker.com/v2/repositories/finos/{name}/")
+        repo_resp = context.client.get(
+            f"https://hub.docker.com/v2/repositories/finos/{name}/"
+        )
         repo_detail = repo_resp.json() if repo_resp.status_code == 200 else {}
         docker_raw = None
         if isinstance(repo_detail, dict):
             fd = repo_detail.get("full_description")
             sd = repo_detail.get("description")
-            docker_raw = (
-                fd if isinstance(fd, str) and fd.strip() else None
-            ) or (sd if isinstance(sd, str) and sd.strip() else None)
+            docker_raw = (fd if isinstance(fd, str) and fd.strip() else None) or (
+                sd if isinstance(sd, str) and sd.strip() else None
+            )
         docker_desc = normalize_release_description(docker_raw)
 
         tags = context.client.get(
@@ -452,4 +759,3 @@ def crawl_docker_hub(context: SourceContext) -> list[Release]:
                 )
             )
     return releases
-

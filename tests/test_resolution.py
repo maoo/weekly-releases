@@ -27,3 +27,17 @@ def test_resolve_finds_project_via_org_slug_match():
     )
     assert project == "Legend"
     assert slug == "legend-studio"
+
+
+def test_resolve_maven_group_id_labels_coordinate_when_assets_miss():
+    idx = LandscapeIndex(
+        maven_group_prefixes=[("org.finos.vuu", "VUU")],
+        repo_to_project={"vuu": "VUU"},
+    )
+    project, slug = resolve_project_and_repo(
+        idx,
+        frozenset({"vuu"}),
+        ["ignite-plugin", "org.finos.vuu.plugin:ignite-plugin"],
+        maven_group_id="org.finos.vuu.plugin",
+    )
+    assert project == "VUU"

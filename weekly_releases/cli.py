@@ -2,33 +2,53 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import typer
 
 from weekly_releases.runner import run
+from weekly_releases.timebox import OutputFormat
 
-app = typer.Typer(help="Scan FINOS package repositories and produce weekly markdown reports.")
+app = typer.Typer(
+    help="Scan FINOS package repositories and produce weekly release reports (HTML or markdown)."
+)
 
 
 @app.command()
 def scan(
     output_dir: Path = typer.Option(Path("releases"), "--output-dir", "-o"),
-    today: str | None = typer.Option(None, help="Override current date in ISO format (YYYY-MM-DD)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Run scan without writing files."),
+    today: str | None = typer.Option(
+        None, help="Override current date in ISO format (YYYY-MM-DD)."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Run scan without writing files."
+    ),
     current_week: bool = typer.Option(
         False,
         "--current-week",
         help=(
             "Crawl only the ISO week containing --today (or today) and write that week's "
-            "markdown file; skips epoch-based backfill."
+            "report file (--format); skips epoch-based backfill."
         ),
     ),
-    quiet: bool = typer.Option(False, "--quiet", help="Only print final result output."),
+    quiet: bool = typer.Option(
+        False, "--quiet", help="Only print final result output."
+    ),
     landscape_source: str | None = typer.Option(
         None, help="Optional local file path or URL for landscape YAML."
     ),
+    output_format: str = typer.Option(
+        "html",
+        "--format",
+        help='Output file format: "html" (standalone page, default) or "md" (markdown).',
+    ),
 ) -> None:
     run_date = date.fromisoformat(today) if today else date.today()
+    fmt = output_format.strip().lower()
+    if fmt not in ("html", "md"):
+        typer.echo('Error: --format must be "html" or "md".', err=True)
+        raise typer.Exit(code=1)
+    fmt_out: OutputFormat = cast(OutputFormat, fmt)
 
     def progress(message: str) -> None:
         if not quiet:
@@ -41,6 +61,7 @@ def scan(
         landscape_source=landscape_source,
         progress=progress,
         current_week_only=current_week and not dry_run,
+        output_format=fmt_out,
     )
     if dry_run:
         typer.echo(
@@ -52,7 +73,8 @@ def scan(
 
     if current_week:
         typer.echo(
-            f"Current week: wrote {len(result.releases)} releases to {result.output_files[0]}"
+            "Current week: wrote "
+            f"{len(result.releases)} releases to {result.output_files[0]}"
         )
         return
 

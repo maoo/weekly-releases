@@ -31,4 +31,3 @@ class Release:
         if not self.description:
             return header
         return f"{header}\n  - Description: {self.description}"
-

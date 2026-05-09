@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Iterator
+from typing import Literal
+
+OutputFormat = Literal["html", "md"]
 
 
-def iso_week_file(base_dir: Path, target: date) -> Path:
+def iso_week_file(
+    base_dir: Path, target: date, *, output_format: OutputFormat = "html"
+) -> Path:
     iso = target.isocalendar()
-    return base_dir / f"{iso.year}" / f"{iso.week:02d}.md"
+    ext = ".html" if output_format == "html" else ".md"
+    return base_dir / f"{iso.year}" / f"{iso.week:02d}{ext}"
 
 
 def release_iso_week(released_at: datetime) -> tuple[int, int]:
     """UTC calendar ISO week ``(year, week)`` for a release timestamp."""
-    iso = released_at.astimezone(timezone.utc).date().isocalendar()
+    iso = released_at.astimezone(UTC).date().isocalendar()
     return iso.year, iso.week
 
 
@@ -20,8 +26,8 @@ def iso_week_bounds(year: int, week: int) -> tuple[datetime, datetime]:
     """Return ``[Monday 00:00 UTC, next Monday 00:00 UTC)`` for an ISO week."""
     monday = date.fromisocalendar(year, week, 1)
     next_monday = monday + timedelta(days=7)
-    start = datetime.combine(monday, datetime.min.time(), tzinfo=timezone.utc)
-    end = datetime.combine(next_monday, datetime.min.time(), tzinfo=timezone.utc)
+    start = datetime.combine(monday, datetime.min.time(), tzinfo=UTC)
+    end = datetime.combine(next_monday, datetime.min.time(), tzinfo=UTC)
     return start, end
 
 
@@ -29,7 +35,7 @@ def current_week_bounds(today: date) -> tuple[datetime, datetime]:
     """Bounds for the ISO week containing ``today``, capped at end of ``today``."""
     iso = today.isocalendar()
     start, week_end = iso_week_bounds(iso.year, iso.week)
-    today_end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
+    today_end = datetime.combine(today, datetime.max.time(), tzinfo=UTC)
     end = min(week_end, today_end)
     return start, end
 

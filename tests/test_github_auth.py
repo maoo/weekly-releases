@@ -1,5 +1,3 @@
-import pytest
-
 from weekly_releases import github_auth
 
 
