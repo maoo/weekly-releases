@@ -16,7 +16,7 @@ app = typer.Typer(
 
 @app.command()
 def scan(
-    output_dir: Path = typer.Option(Path("releases"), "--output-dir", "-o"),
+    output_dir: Path = typer.Option(Path("docs"), "--output-dir", "-o"),
     today: str | None = typer.Option(
         None, help="Override current date in ISO format (YYYY-MM-DD)."
     ),

@@ -1,9 +1,9 @@
 # Weekly Releases
 
 > [!IMPORTANT]
-> Check [FINOS 2026 Weekly releases](weekly_releases/2026)!
+> Check [FINOS 2026 Weekly releases](docs/2026)!
 
-Weekly Releases is a Python ([uv](https://docs.astral.sh/uv/)-based) crawler that gathers FINOS-related releases from GitHub, Maven Central, npm, PyPI, and Docker Hub, using FINOS landscape metadata to label projects. It writes one **standalone HTML** file per ISO week under `releases/YYYY/WW.html` by default (collapsible sections per project), or **`--format md`** for Markdown at `releases/YYYY/WW.md` (see **[specs.md](specs.md)**).
+Weekly Releases is a Python ([uv](https://docs.astral.sh/uv/)-based) crawler that gathers FINOS-related releases from GitHub, Maven Central, npm, PyPI, and Docker Hub, using FINOS landscape metadata to label projects. It writes one **standalone HTML** file per ISO week under `docs/YYYY/WW.html` by default (collapsible sections per project), or **`--format md`** for Markdown at `docs/YYYY/WW.md` (see **[specs.md](specs.md)**).
 
 The normative description of **time windows**, **GitHub authentication**, **sources**, **HTML/Markdown layout**, **release descriptions**, and **landscape mapping** is **[specs.md](specs.md)**. This README focuses on install, usage, and CI.
 
@@ -47,7 +47,7 @@ uv run weekly-releases --format md
 Specify output directory:
 
 ```bash
-uv run weekly-releases --output-dir releases
+uv run weekly-releases --output-dir docs
 ```
 
 Use a local landscape file for deterministic runs:
@@ -94,4 +94,4 @@ uv run pytest
 
 ## CI
 
-`.github/workflows/weekly-scan.yml` runs **ruff + black**, **pytest**, then weekly (Monday UTC) **normal backfill** (no `--current-week`), fills any missing `releases/YYYY/WW.html` files since the epoch (default format), and commits changes when needed.
+`.github/workflows/weekly-scan.yml` runs **ruff + black**, **pytest**, then weekly (Monday UTC) **normal backfill** (no `--current-week`), fills any missing `docs/YYYY/WW.html` files since the epoch (default format), and commits changes when needed.

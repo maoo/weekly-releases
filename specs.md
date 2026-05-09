@@ -6,9 +6,9 @@ These notes are the **authoritative** behavior reference for Weekly Releases (un
 
 Weekly Releases is a small Python tool (dependencies managed with [uv](https://docs.astral.sh/uv/)) that polls public registries for artifacts associated with the FINOS community. It correlates repositories and package identifiers with **[FINOS landscape](https://github.com/finos/finos-landscape)** cards—primarily via `landscape.yml` (remote URL by default; override with `--landscape-source`), including optional per-card **`maven_groupid`** values that map Maven **`groupId`** prefixes to the card **`name`**—so each released artifact is labeled with the landscape **`name`** as the human-readable **project** when a match exists.
 
-**Outputs:** Reports live under `releases/YYYY/WW.<ext>`: year plus zero-padded ISO week number. The extension is **`WW.html`** by default (**`--format html`**) or **`WW.md`** when **`--format md`**. A week counts as **present** only if the file for the **selected** format exists (so switching format may backfill new files alongside older ones). Within each file, releases are **grouped by project** in collapsible sections (native `<details>` in HTML; embedded `<details>` in Markdown). Each release row is bucketed by its **release timestamp** (UTC), aligned to the ISO week that contains that instant. Weeks with no releases still get a stub file when backfill creates them.
+**Outputs:** Reports live under `docs/YYYY/WW.<ext>`: year plus zero-padded ISO week number. The extension is **`WW.html`** by default (**`--format html`**) or **`WW.md`** when **`--format md`**. A week counts as **present** only if the file for the **selected** format exists (so switching format may backfill new files alongside older ones). Within each file, releases are **grouped by project** in collapsible sections (native `<details>` in HTML; embedded `<details>` in Markdown). Each release row is bucketed by its **release timestamp** (UTC), aligned to the ISO week that contains that instant. Weeks with no releases still get a stub file when backfill creates them.
 
-After every **non–dry-run** scan (`scan` without **`--dry-run`**), the tool also writes **`releases/index.html`** (under **`--output-dir`**, default `releases`): a standalone HTML page that lists every **numeric-named year subdirectory** (sorted ascending), and under each year links to all **`WW.html`** files found in that folder (sorted by week number). Year folders with no matching HTML week files still appear, with a short empty notice. The index does not list **`*.md`** week files; it reflects HTML reports only (the default CI format). Relative links use `YYYY/WW.html` from the index page.
+After every **non–dry-run** scan (`scan` without **`--dry-run`**), the tool also writes **`docs/index.html`** (under **`--output-dir`**, default `docs`): a standalone HTML page that lists every **numeric-named year subdirectory** (sorted ascending), and under each year links to all **`WW.html`** files found in that folder (sorted by week number). Year folders with no matching HTML week files still appear, with a short empty notice. The index does not list **`*.md`** week files; it reflects HTML reports only (the default CI format). Relative links use `YYYY/WW.html` from the index page.
 
 **Crawl modes at a glance:** you can **dry-run** the current week without writes, **overwrite only** the current week’s file (`--current-week`), or run **normal backfill** that fills missing weeks from a fixed epoch through today—precise UTC boundaries and edge cases are spelled out under *Time windows*.
 
@@ -20,7 +20,7 @@ The entry point is the Typer app **`weekly-releases`** (see **`[project.scripts]
 
 | Flag | Role |
 |------|------|
-| **`--output-dir` / `-o`** | Directory under which `YYYY/WW.<ext>` files are written (default `releases`). |
+| **`--output-dir` / `-o`** | Directory under which `YYYY/WW.<ext>` files are written (default `docs`). |
 | **`--today`** | Override “today” as an ISO date `YYYY-MM-DD` (anchors the current ISO week and backfill “through” date). |
 | **`--dry-run`** | Crawl **only** the current ISO week; **no files** written. Prints a short summary and **one line per release** using the same text shape as Markdown list items (`Release.as_markdown_line()`), regardless of **`--format`**. |
 | **`--current-week`** | With write mode, crawl that week and write **one** week file; **ignored** when combined with **`--dry-run`**. |
@@ -28,15 +28,15 @@ The entry point is the Typer app **`weekly-releases`** (see **`[project.scripts]
 | **`--landscape-source`** | Optional path or URL for `landscape.yml` (defaults to the FINOS landscape raw URL in code). |
 | **`--format`** | `html` or `md` (default **`html`**). Compared after **trim + lower-case**; any other value exits **non-zero** with an error message. Controls file extension and renderer only; **`--dry-run`** console output is unchanged. |
 
-**CI:** The scheduled GitHub Action runs the tool with defaults unless the workflow is edited, so week files are **`WW.html`** unless **`--format md`** is added there. The same run refreshes **`releases/index.html`** so the Action commit includes an up-to-date directory of HTML week pages when anything under the output directory changes.
+**CI:** The scheduled GitHub Action runs the tool with defaults unless the workflow is edited, so week files are **`WW.html`** unless **`--format md`** is added there. The same run refreshes **`docs/index.html`** so the Action commit includes an up-to-date directory of HTML week pages when anything under the output directory changes.
 
 ## Time windows (date frames)
 
-- **Anchor:** Weeks are tracked from a fixed **epoch date** (`2026-01-01` in code). Any ISO week from that Monday through “today” that does **not** yet have the output file for the active **`--format`** (`releases/YYYY/WW.html` or `releases/YYYY/WW.md`) is considered **missing** and eligible for backfill.
+- **Anchor:** Weeks are tracked from a fixed **epoch date** (`2026-01-01` in code). Any ISO week from that Monday through “today” that does **not** yet have the output file for the active **`--format`** (`docs/YYYY/WW.html` or `docs/YYYY/WW.md`) is considered **missing** and eligible for backfill.
 
 - **`--dry-run`:** Scans **only the ISO week that contains `--today` (or today)** — from that week’s **Monday 00:00 UTC** through the **earlier of** that week’s end boundary **or end-of-day UTC on that date**. Nothing is written.
 
-- **`--current-week` (write mode, without `--dry-run`):** Uses the **same crawl window** as `--dry-run` for the ISO week containing `--today` (or today). Writes **exactly one** file: `releases/YYYY/WW.html` when **`--format html`** (default) or `releases/YYYY/WW.md` when **`--format md`** (creating or **replacing** it). Does **not** inspect the epoch or missing-week backfill; other gaps are left unchanged. Releases returned by sources are filtered so only timestamps falling in that ISO week appear in the file.
+- **`--current-week` (write mode, without `--dry-run`):** Uses the **same crawl window** as `--dry-run` for the ISO week containing `--today` (or today). Writes **exactly one** file: `docs/YYYY/WW.html` when **`--format html`** (default) or `docs/YYYY/WW.md` when **`--format md`** (creating or **replacing** it). Does **not** inspect the epoch or missing-week backfill; other gaps are left unchanged. Releases returned by sources are filtered so only timestamps falling in that ISO week appear in the file.
 
 - **Normal write** (no `--dry-run`, no `--current-week`):
   - If **every** week from the epoch through today already has an output file for the selected format, the run **does nothing** (no network crawl).
