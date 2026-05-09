@@ -156,7 +156,9 @@ landscape:
     assert index.project_for_maven_group_id("org.finos.vuu") == "VUU"
     assert index.project_for_maven_group_id("org.finos.vuu.plugin") == "VUU"
     assert index.project_for_maven_group_id("org.finos.cdm") == "Common Domain Model"
-    assert index.project_for_maven_group_id("org.finos.cdm.foo") == "Common Domain Model"
+    assert (
+        index.project_for_maven_group_id("org.finos.cdm.foo") == "Common Domain Model"
+    )
 
 
 def test_project_for_maven_group_id_empty_and_whitespace_unknown():
