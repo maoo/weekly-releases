@@ -110,6 +110,24 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   color: #0f172a;
 }
 .browse-column .week-links { margin-top: 0; }
+.month-page-link {
+  margin: 0;
+}
+.month-page-link a {
+  display: inline-block;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+.month-page-link a:hover {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
 
 </style>
 </head>
@@ -117,7 +135,7 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 <div class="wrap">
 <header>
 <h1>FINOS Releases</h1>
-<p>Reports from 1&nbsp;January&nbsp;2026 (UTC). Week files use <code>YYYY/WW.html</code> (ISO week-year folder <code>YYYY/</code> and zero-padded week <code>WW</code>). Under <strong>By month</strong>, each week is listed once, under the Gregorian month that contains that week&rsquo;s Thursday.</p>
+<p>Reports from 1&nbsp;January&nbsp;2026 (UTC). Week files use <code>YYYY/WW.html</code> (ISO week-year folder <code>YYYY/</code> and zero-padded week <code>WW</code>). Under <strong>By month</strong>, one page per Gregorian month (same Thursday rule as before) aggregates every week in that month, grouped by project. <strong>By week</strong> still links each <code>WW.html</code> file.</p>
 </header>
 <main>
 <section class="year-block">
@@ -128,33 +146,23 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 <div class="month-groups">
 <div class="month-block">
 <h4>January 2026</h4>
-<ul class="week-links">
-<li><a href="2026/01.html">Week 01</a></li><li><a href="2026/02.html">Week 02</a></li><li><a href="2026/03.html">Week 03</a></li><li><a href="2026/04.html">Week 04</a></li><li><a href="2026/05.html">Week 05</a></li>
-</ul>
+<p class="month-page-link"><a href="2026/calendar-2026-01.html">January 2026 — all releases</a></p>
 </div>
 <div class="month-block">
 <h4>February 2026</h4>
-<ul class="week-links">
-<li><a href="2026/06.html">Week 06</a></li><li><a href="2026/07.html">Week 07</a></li><li><a href="2026/08.html">Week 08</a></li><li><a href="2026/09.html">Week 09</a></li>
-</ul>
+<p class="month-page-link"><a href="2026/calendar-2026-02.html">February 2026 — all releases</a></p>
 </div>
 <div class="month-block">
 <h4>March 2026</h4>
-<ul class="week-links">
-<li><a href="2026/10.html">Week 10</a></li><li><a href="2026/11.html">Week 11</a></li><li><a href="2026/12.html">Week 12</a></li><li><a href="2026/13.html">Week 13</a></li>
-</ul>
+<p class="month-page-link"><a href="2026/calendar-2026-03.html">March 2026 — all releases</a></p>
 </div>
 <div class="month-block">
 <h4>April 2026</h4>
-<ul class="week-links">
-<li><a href="2026/14.html">Week 14</a></li><li><a href="2026/15.html">Week 15</a></li><li><a href="2026/16.html">Week 16</a></li><li><a href="2026/17.html">Week 17</a></li><li><a href="2026/18.html">Week 18</a></li>
-</ul>
+<p class="month-page-link"><a href="2026/calendar-2026-04.html">April 2026 — all releases</a></p>
 </div>
 <div class="month-block">
 <h4>May 2026</h4>
-<ul class="week-links">
-<li><a href="2026/19.html">Week 19</a></li><li><a href="2026/20.html">Week 20</a></li>
-</ul>
+<p class="month-page-link"><a href="2026/calendar-2026-05.html">May 2026 — all releases</a></p>
 </div>
 </div>
 </div>
