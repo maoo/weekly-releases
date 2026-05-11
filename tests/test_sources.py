@@ -1,3 +1,4 @@
+import xmlrpc.client
 from datetime import UTC, datetime
 from urllib.parse import quote
 
@@ -65,6 +66,14 @@ class FakeClient:
         key = (url, tuple(sorted((params or {}).items())))
         if key in self.data:
             return self.data[key]
+        return self.data[url]
+
+    def post(self, url, *, content=None, headers=None):
+        # Tests can register a per-URL response (most cases) or a tuple
+        # ``(url, content)`` key when they need to assert on the body.
+        body_key = (url, content)
+        if body_key in self.data:
+            return self.data[body_key]
         return self.data[url]
 
 
@@ -603,10 +612,20 @@ def test_crawl_npm_search_http_error_raises_clear_error():
         crawl_npm(context)
 
 
+def _pypi_user_packages_response_xml(rows: list[list[str]]) -> str:
+    """Build an XML-RPC ``methodResponse`` payload for ``user_packages``.
+
+    ``rows`` is the raw list-of-pairs PyPI returns: ``[[role, name], ...]``.
+    """
+    return xmlrpc.client.dumps((rows,), methodresponse=True)
+
+
 def test_crawl_pypi():
     fake = {
-        "https://pypi.org/user/finos/": FakeResponse(
-            text_data='<a href="/project/artifact/">artifact</a>'
+        # XML-RPC discovery: ``user_packages("finos")`` lists every distribution
+        # owned/maintained by the FINOS PyPI user.
+        "https://pypi.org/pypi": FakeResponse(
+            text_data=_pypi_user_packages_response_xml([["Owner", "artifact"]])
         ),
         "https://pypi.org/pypi/artifact/json": FakeResponse(
             json_data={
@@ -630,14 +649,15 @@ def test_crawl_pypi():
     context = build_context(fake)
     py = crawl_pypi(context)
     assert len(py) == 1
+    assert py[0].artifact == "artifact"
     assert py[0].description == "Sample Python wheel"
     assert py[0].publisher == "Ada Lovelace, Charles Babbage"
 
 
 def test_crawl_pypi_skips_missing_package():
     fake = {
-        "https://pypi.org/user/finos/": FakeResponse(
-            text_data='<a href="/project/missing/">x</a>'
+        "https://pypi.org/pypi": FakeResponse(
+            text_data=_pypi_user_packages_response_xml([["Owner", "missing"]])
         ),
         "https://pypi.org/pypi/missing/json": FakeResponse(
             status_code=404, json_data={}
@@ -645,6 +665,83 @@ def test_crawl_pypi_skips_missing_package():
     }
     context = build_context(fake)
     assert crawl_pypi(context) == []
+
+
+def test_crawl_pypi_returns_empty_when_user_packages_non_200():
+    # PyPI sometimes returns 5xx for the legacy XML-RPC endpoint; the source
+    # must contribute zero releases for that crawl rather than raising.
+    fake = {
+        "https://pypi.org/pypi": FakeResponse(status_code=502, text_data="bad gateway"),
+    }
+    context = build_context(fake)
+    assert crawl_pypi(context) == []
+
+
+def test_crawl_pypi_returns_empty_when_user_packages_body_is_not_xmlrpc():
+    # The Fastly bot-challenge HTML page that broke the previous HTML scrape:
+    # an HTTP 200 response whose body is HTML, not XML-RPC. Must not crash.
+    fake = {
+        "https://pypi.org/pypi": FakeResponse(
+            text_data="<!DOCTYPE html><html><body>Client Challenge</body></html>"
+        ),
+    }
+    context = build_context(fake)
+    assert crawl_pypi(context) == []
+
+
+def test_crawl_pypi_returns_empty_on_xmlrpc_fault():
+    # XML-RPC ``<fault>`` envelope (e.g. unknown user) ⇒ zero releases, no raise.
+    fault_xml = xmlrpc.client.dumps(
+        xmlrpc.client.Fault(1, "no such user"),
+        methodresponse=True,
+    )
+    fake = {
+        "https://pypi.org/pypi": FakeResponse(text_data=fault_xml),
+    }
+    context = build_context(fake)
+    assert crawl_pypi(context) == []
+
+
+def test_crawl_pypi_iterates_every_returned_package_name():
+    # Multi-package discovery: every name from the XML-RPC response is fed
+    # into the per-package /pypi/<name>/json loop, deduplicated when the same
+    # name appears under multiple roles (Owner + Maintainer).
+    rows = [
+        ["Owner", "alpha"],
+        ["Maintainer", "alpha"],  # duplicate role, same name → still one fetch
+        ["Owner", "beta"],
+    ]
+
+    def _meta(name: str, version: str, when: str) -> FakeResponse:
+        return FakeResponse(
+            json_data={
+                "info": {"version": version, "summary": f"summary {name}"},
+                "releases": {
+                    version: [
+                        {
+                            "upload_time_iso_8601": when,
+                            "url": f"https://pypi/{name}",
+                        }
+                    ]
+                },
+            }
+        )
+
+    fake = {
+        "https://pypi.org/pypi": FakeResponse(
+            text_data=_pypi_user_packages_response_xml(rows)
+        ),
+        "https://pypi.org/pypi/alpha/json": _meta(
+            "alpha", "1.0.0", "2026-01-04T00:00:00Z"
+        ),
+        "https://pypi.org/pypi/beta/json": _meta(
+            "beta", "2.1.0", "2026-01-05T00:00:00Z"
+        ),
+    }
+    context = build_context(fake)
+    py = crawl_pypi(context)
+    assert sorted(p.artifact for p in py) == ["alpha", "beta"]
+    assert all(p.source == "pypi" for p in py)
 
 
 def test_maven_pom_description_non_200_returns_none():

@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 import re
 import threading
+import xmlrpc.client
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
+from xml.parsers.expat import ExpatError
 
 import httpx
 
@@ -839,9 +841,60 @@ def _pypi_contributors_from_info(info: dict[str, Any]) -> str | None:
     return ", ".join(ordered) if ordered else None
 
 
+def _pypi_discover_user_packages(client: Any, username: str) -> list[str]:
+    """Distinct PyPI package names owned/maintained by ``username``.
+
+    Discovery uses the legacy XML-RPC ``user_packages`` method (POST
+    ``text/xml`` to ``https://pypi.org/pypi``). The previous HTML scrape of
+    ``https://pypi.org/user/<username>/`` no longer works because PyPI now
+    serves a Fastly JavaScript bot-mitigation page ("Client Challenge") at
+    that URL, leaving zero ``/project/<name>/`` links to parse.
+
+    Returns ``[]`` (rather than raising) on any HTTP error, malformed XML,
+    or XML-RPC ``Fault`` so a transient PyPI hiccup never fails the whole
+    crawl. Names are deduplicated while preserving first-seen order.
+    """
+    body = xmlrpc.client.dumps((username,), methodname="user_packages")
+    try:
+        resp = client.post(
+            "https://pypi.org/pypi",
+            content=body.encode("utf-8"),
+            headers={"Content-Type": "text/xml"},
+        )
+    except httpx.RequestError:
+        return []
+    if getattr(resp, "status_code", 200) != 200:
+        return []
+    try:
+        params, _method = xmlrpc.client.loads(resp.text or "")
+    except (xmlrpc.client.Error, ExpatError, ValueError):
+        # ``xmlrpc.client.Error`` is the base class of ``Fault`` (server fault
+        # envelope), ``ResponseError`` (the body is XML but not valid
+        # XML-RPC, e.g. the Fastly Client-Challenge HTML page), and
+        # ``ProtocolError``. ``ExpatError`` covers a body that is not even
+        # well-formed XML.
+        return []
+    if not params:
+        return []
+    rows = params[0]
+    if not isinstance(rows, list):
+        return []
+    seen: set[str] = set()
+    names: list[str] = []
+    for row in rows:
+        # Each row is ``[role, package_name]`` (e.g. ``["Owner", "rune-runtime"]``).
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        name = row[1]
+        if not isinstance(name, str) or not name or name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
 def crawl_pypi(context: SourceContext) -> list[Release]:
-    user_page = context.client.get("https://pypi.org/user/finos/").text
-    finos_candidates = sorted(set(re.findall(r"/project/([^/]+)/", user_page)))
+    finos_candidates = _pypi_discover_user_packages(context.client, "finos")
     releases: list[Release] = []
     for package in finos_candidates:
         meta = context.client.get(f"https://pypi.org/pypi/{package}/json")
