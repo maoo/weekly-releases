@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,50 @@ LANDSCAPE_URL = (
     "https://raw.githubusercontent.com/finos/finos-landscape/main/landscape.yml"
 )
 
-_ASSET_KEYS = ("maven", "npm", "pypi", "docker", "packages", "artifacts", "docker_hub")
+# Card root, nested ``item``, or ``extra``: package / image identifiers for lookup.
+# ``docker_hub`` / ``npmjs`` / ``pypi`` are the FINOS landscape ``extra`` fields that
+# list Docker Hub images, npm packages, and PyPI distributions respectively (``npm``
+# and ``docker`` remain for legacy or sibling keys).
+_ASSET_KEYS = (
+    "maven",
+    "npm",
+    "npmjs",
+    "pypi",
+    "docker",
+    "docker_hub",
+    "packages",
+    "artifacts",
+)
+
+# Adjacent ``"..." "..."`` tokens in a YAML flow sequence require a comma; upstream
+# ``finos-landscape`` has occasionally shipped ``docker_hub: [ "a" "b" ]`` (typo).
+_DOCKER_HUB_FLOW_ADJACENT_QUOTED = re.compile(r'("(?:[^"\\]|\\.)*")\s+(")')
+
+
+def _repair_adjacent_quoted_strings_in_docker_hub_flow_lines(raw: str) -> str:
+    """Insert missing commas between quoted flow-sequence entries on ``docker_hub`` lines.
+
+    Only lines containing ``docker_hub:``, ``[``, and ``]`` are rewritten, so block-style
+    lists and unrelated keys are untouched.
+    """
+    out: list[str] = []
+    for line in raw.splitlines(keepends=True):
+        if "docker_hub:" in line and "[" in line and "]" in line:
+            if line.endswith("\r\n"):
+                body, suffix = line[:-2], "\r\n"
+            elif line.endswith("\n"):
+                body, suffix = line[:-1], "\n"
+            elif line.endswith("\r"):
+                body, suffix = line[:-1], "\r"
+            else:
+                body, suffix = line, ""
+            prev = None
+            while prev != body:
+                prev = body
+                body = _DOCKER_HUB_FLOW_ADJACENT_QUOTED.sub(r"\1, \2", body)
+            line = body + suffix
+        out.append(line)
+    return "".join(out)
 
 
 @dataclass(slots=True)
@@ -173,6 +217,12 @@ def _expand_asset_keys(raw: str) -> list[str]:
             keys.append(k)
 
     add(s)
+    # Upstream ``npm`` / ``npmjs`` lists often use ``finos/pkg``; npm scoped names are ``@finos/pkg``.
+    if "/" in s and " " not in s and not s.startswith("@"):
+        org, _, rest = s.partition("/")
+        if org.lower() == "finos" and rest and "/" not in rest:
+            add(f"@finos/{rest}")
+            add(rest)
     parts = s.split()
     if len(parts) >= 2 and parts[0].lower() == "finos":
         image = parts[1].lstrip("/")
@@ -268,7 +318,8 @@ def _walk_landscape(
 
 
 def parse_landscape(raw_yaml: str) -> LandscapeIndex:
-    content = yaml.safe_load(raw_yaml) or {}
+    repaired = _repair_adjacent_quoted_strings_in_docker_hub_flow_lines(raw_yaml)
+    content = yaml.safe_load(repaired) or {}
     root: Any = content.get("landscape", []) if isinstance(content, dict) else []
     index = LandscapeIndex()
     _walk_landscape(root, None, index)

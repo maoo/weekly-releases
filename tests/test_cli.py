@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
 from typer.testing import CliRunner
 from weekly_releases.cli import app
@@ -64,17 +65,19 @@ def test_cli_write_mode_with_missing_weeks(monkeypatch, tmp_path):
     assert str(file_b) in result.stdout
 
 
-def test_cli_write_mode_no_missing_weeks(monkeypatch):
+def test_cli_write_mode_no_missing_weeks(monkeypatch, tmp_path: Path):
     runner = CliRunner()
+    touched = tmp_path / "2026" / "02.html"
 
     class _Result:
-        output_files: list = []
+        output_files = [touched]
         releases: list = []
 
     monkeypatch.setattr("weekly_releases.cli.run", lambda **kwargs: _Result())
-    result = runner.invoke(app, ["--today", "2026-01-08"])
+    result = runner.invoke(app, ["--today", "2026-01-08", "-o", str(tmp_path)])
     assert result.exit_code == 0
-    assert "No missing weeks; nothing written." in result.stdout
+    assert "Wrote 0 releases across 1 week(s):" in result.stdout
+    assert str(touched) in result.stdout
 
 
 def test_cli_current_week(monkeypatch, tmp_path):

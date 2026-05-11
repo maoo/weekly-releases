@@ -5,6 +5,8 @@ from weekly_releases.models import Release
 from weekly_releases.storage import (
     collect_year_week_html_files,
     latest_weekly_file,
+    merge_calendar_month_project_lists,
+    parse_weekly_html_project_blocks,
     render_html,
     render_markdown,
     render_releases_index_html,
@@ -43,6 +45,7 @@ def test_render_markdown_with_and_without_releases():
     assert "<details>" in full and "</details>" in full
     assert "`Proj` |" not in full  # project shown only in heading when grouped
     assert " — " in full
+    assert "| — | 2026-01-08 |" in full  # publisher placeholder before date
     assert "[link](https://example.test)" in full
 
     with_desc = Release(
@@ -144,6 +147,7 @@ def test_render_html_standalone_document_and_collapsed_details():
         url="https://example.test/u?v=1&x",
         released_at=datetime(2026, 1, 8, tzinfo=UTC),
         description="Line1\n<script>alert(1)</script>",
+        publisher="Ada <test> (alovelace)",
     )
     html_out = render_html(date(2026, 1, 8), [rel])
     assert "<!DOCTYPE html>" in html_out
@@ -152,6 +156,7 @@ def test_render_html_standalone_document_and_collapsed_details():
     assert "A &amp; B" in html_out
     assert "<script>" not in html_out
     assert "example.test" in html_out
+    assert "Ada &lt;test&gt; (alovelace)" in html_out
 
 
 def test_render_html_empty_week():
@@ -207,16 +212,79 @@ def test_render_releases_index_html_empty_base_has_notice(tmp_path: Path):
     assert "No year folders or HTML week reports yet." in html_out
 
 
+def _minimal_week_html_body(*, release_date: str = "2026-01-05") -> str:
+    return f"""<!DOCTYPE html><html><body><div class="wrap"><main>
+<div class="projects">
+<details class="project">
+<summary>DemoProj<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release"><div class="release-meta"><span class="mono">finos/x</span><span class="sep">|</span><span class="source-tag">github</span><span class="sep">|</span><span class="mono">x</span><span class="sep">|</span><span class="mono">1</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>{release_date}</span><span class="sep">|</span><a class="link" href="https://example/">link</a></div></li>
+</ul>
+</details>
+</div></main></body></html>"""
+
+
 def test_render_releases_index_html_links_week_pages_relative(tmp_path: Path):
     y = tmp_path / "2026"
     y.mkdir(parents=True)
-    (y / "02.html").write_text("x", encoding="utf-8")
-    (y / "01.html").write_text("y", encoding="utf-8")
+    (y / "02.html").write_text(
+        _minimal_week_html_body(release_date="2026-01-08"), encoding="utf-8"
+    )
+    (y / "01.html").write_text(
+        _minimal_week_html_body(release_date="2026-01-02"), encoding="utf-8"
+    )
 
-    html_out = render_releases_index_html(tmp_path)
+    write_releases_index(tmp_path)
+    html_out = (tmp_path / "index.html").read_text(encoding="utf-8")
     assert 'href="2026/01.html"' in html_out
     assert 'href="2026/02.html"' in html_out
     assert html_out.index('href="2026/01.html"') < html_out.index('href="2026/02.html"')
+    assert "FINOS Releases" in html_out
+    assert "By month" in html_out
+    assert "By week" in html_out
+    assert "January 2026" in html_out
+    assert "calendar-2026-01.html" in html_out
+    cal = tmp_path / "2026" / "calendar-2026-01.html"
+    assert cal.exists()
+    cal_html = cal.read_text(encoding="utf-8")
+    assert "DemoProj" in cal_html
+    assert cal_html.index("2026-01-02") < cal_html.index("2026-01-08")
+
+
+def test_render_releases_index_html_month_groups_follow_calendar_order(tmp_path: Path):
+    y = tmp_path / "2026"
+    y.mkdir(parents=True)
+    # ISO 2026 W05 Thursday is still in January; W06 Thursday is 2026-02-05.
+    for w in (1, 2, 6):
+        (y / f"{w:02d}.html").write_text(_minimal_week_html_body(), encoding="utf-8")
+
+    write_releases_index(tmp_path)
+    html_out = (tmp_path / "index.html").read_text(encoding="utf-8")
+    assert html_out.index("January 2026") < html_out.index("February 2026")
+    assert "calendar-2026-01.html" in html_out
+    assert "calendar-2026-02.html" in html_out
+
+
+def test_render_releases_index_html_excludes_years_before_epoch(tmp_path: Path):
+    y = tmp_path / "2025"
+    y.mkdir(parents=True)
+    (y / "50.html").write_text("x", encoding="utf-8")
+
+    html_out = render_releases_index_html(tmp_path)
+    assert "2026 or later yet" in html_out
+    assert "<h2>2025</h2>" not in html_out
+
+
+def test_render_releases_index_html_epoch_year_only_when_mixed_folders(tmp_path: Path):
+    (tmp_path / "2025").mkdir()
+    (tmp_path / "2025" / "01.html").write_text("a", encoding="utf-8")
+    y = tmp_path / "2026"
+    y.mkdir(parents=True)
+    (y / "01.html").write_text("b", encoding="utf-8")
+
+    html_out = render_releases_index_html(tmp_path)
+    assert "<h2>2026</h2>" in html_out
+    assert "<h2>2025</h2>" not in html_out
 
 
 def test_render_releases_index_html_shows_empty_notice_when_year_has_no_html(
@@ -233,4 +301,17 @@ def test_write_releases_index_creates_directory_and_index(tmp_path: Path):
     path = write_releases_index(base)
     assert path == base / "index.html"
     assert path.exists()
-    assert "FINOS weekly releases" in path.read_text(encoding="utf-8")
+    assert "FINOS Releases" in path.read_text(encoding="utf-8")
+
+
+def test_merge_calendar_month_combines_same_project_across_weeks():
+    w1 = _minimal_week_html_body(release_date="2026-01-15")
+    w2 = _minimal_week_html_body(release_date="2026-01-03")
+    merged = merge_calendar_month_project_lists(
+        [parse_weekly_html_project_blocks(w1), parse_weekly_html_project_blocks(w2)]
+    )
+    assert len(merged) == 1
+    items = next(iter(merged.values()))
+    assert len(items) == 2
+    joined = "\n".join(items)
+    assert joined.index("2026-01-03") < joined.index("2026-01-15")

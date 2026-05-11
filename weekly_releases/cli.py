@@ -79,7 +79,7 @@ def scan(
         return
 
     if not result.output_files:
-        typer.echo("No missing weeks; nothing written.")
+        typer.echo("No week report paths returned; index refresh still ran in the tool.")
         return
 
     typer.echo(

@@ -240,10 +240,14 @@ def test_write_run_skips_when_all_weeks_present(monkeypatch, tmp_path: Path):
         progress=messages.append,
     )
 
-    assert result.output_files == []
-    assert result.releases == []
-    assert crawled["called"] is False
-    assert any("nothing to do" in msg for msg in messages)
+    assert [p.name for p in result.output_files] == ["02.html"]
+    assert crawled["called"] is True
+    assert any("no backfill writes" in msg for msg in messages)
+    assert any("Refreshing current ISO week" in msg for msg in messages)
+    w02 = tmp_path / "2026" / "02.html"
+    assert w02.exists()
+    assert w02.read_text(encoding="utf-8") != "done"
+    assert (tmp_path / "2026" / "01.html").read_text(encoding="utf-8") == "done"
     idx = tmp_path / "index.html"
     assert idx.exists()
     text = idx.read_text(encoding="utf-8")

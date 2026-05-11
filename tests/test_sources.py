@@ -6,6 +6,8 @@ import pytest
 from weekly_releases.landscape import LandscapeIndex
 from weekly_releases.sources import (
     SourceContext,
+    _maven_contributors_label,
+    _maven_developer_labels_from_pom_text,
     _maven_pom_description,
     _maven_pom_url,
     _npm_version_description,
@@ -97,6 +99,10 @@ def test_crawl_github_filters_dates():
                         "tag_name": "v1",
                         "html_url": "https://gh/r",
                         "body": "Bug fixes and docs.",
+                        "author": {
+                            "login": "octocat",
+                            "name": "Monalisa Octocat",
+                        },
                     },
                     {
                         "published_at": "2025-12-02T00:00:00Z",
@@ -112,6 +118,7 @@ def test_crawl_github_filters_dates():
     assert len(out) == 1
     assert out[0].project == "Project"
     assert out[0].description == "Bug fixes and docs."
+    assert out[0].publisher == "Monalisa Octocat (octocat)"
 
 
 def test_crawl_github_handles_unexpected_payload_shape():
@@ -177,10 +184,18 @@ def test_crawl_maven_and_npm_and_docker():
             }
         ),
         "https://repo1.maven.org/maven2/org/finos/artifact/1.2.3/artifact-1.2.3.pom": FakeResponse(
-            text_data="<project><description>Maven coordinate</description></project>"
+            text_data=(
+                "<project><description>Maven coordinate</description>"
+                "<developers><developer><name>Jane Doe</name><id>jdoe</id></developer>"
+                "</developers></project>"
+            )
         ),
         "https://registry.npmjs.org/%40finos%2Fartifact/2.0.0": FakeResponse(
-            json_data={"description": "Scoped npm artifact"}
+            json_data={
+                "description": "Scoped npm artifact",
+                "maintainers": [{"name": "alice"}, {"name": "bob"}],
+                "_npmUser": {"name": "npm-user"},
+            }
         ),
         "https://hub.docker.com/v2/repositories/finos/?page_size=100": FakeResponse(
             json_data={"results": [{"name": "artifact"}]}
@@ -190,7 +205,13 @@ def test_crawl_maven_and_npm_and_docker():
         ),
         "https://hub.docker.com/v2/repositories/finos/artifact/tags?page_size=50": FakeResponse(
             json_data={
-                "results": [{"name": "latest", "last_updated": "2026-01-04T00:00:00Z"}]
+                "results": [
+                    {
+                        "name": "latest",
+                        "last_updated": "2026-01-04T00:00:00Z",
+                        "last_updater_username": "finos",
+                    }
+                ]
             }
         ),
     }
@@ -199,12 +220,15 @@ def test_crawl_maven_and_npm_and_docker():
     assert len(mvn_rels) == 1
     assert mvn_rels[0].artifact == "org.finos:artifact"
     assert mvn_rels[0].description == "Maven coordinate"
+    assert mvn_rels[0].publisher == "Jane Doe (jdoe)"
     npm_rels = crawl_npm(context)
     assert len(npm_rels) == 1
     assert npm_rels[0].description == "Scoped npm artifact"
+    assert npm_rels[0].publisher == "alice, bob, npm-user"
     dock = crawl_docker_hub(context)
     assert len(dock) == 1
     assert dock[0].description == "Container image"
+    assert dock[0].publisher == "finos"
 
 
 def test_crawl_maven_nested_group_id_pom_path():
@@ -586,7 +610,12 @@ def test_crawl_pypi():
         ),
         "https://pypi.org/pypi/artifact/json": FakeResponse(
             json_data={
-                "info": {"version": "1.0.0", "summary": "Sample Python wheel"},
+                "info": {
+                    "version": "1.0.0",
+                    "summary": "Sample Python wheel",
+                    "author": "Ada Lovelace",
+                    "maintainer": "Charles Babbage",
+                },
                 "releases": {
                     "1.0.0": [
                         {
@@ -602,6 +631,7 @@ def test_crawl_pypi():
     py = crawl_pypi(context)
     assert len(py) == 1
     assert py[0].description == "Sample Python wheel"
+    assert py[0].publisher == "Ada Lovelace, Charles Babbage"
 
 
 def test_crawl_pypi_skips_missing_package():
@@ -640,6 +670,55 @@ def test_maven_pom_description_strips_cdata():
         _maven_pom_description(client, "org.finos.demo", "lib", "1.0.0")
         == "Hello CDATA"
     )
+
+
+def test_maven_developer_labels_all_developers_in_pom():
+    pom = """<project>
+  <developers>
+    <developer>
+      <name>ACME</name>
+    </developer>
+    <developer>
+      <name>Pat Lee</name>
+      <id>plee</id>
+    </developer>
+  </developers>
+</project>"""
+    assert _maven_developer_labels_from_pom_text(pom) == ["ACME", "Pat Lee (plee)"]
+
+
+def test_maven_contributors_label_parent_pom_developers():
+    leaf_g, leaf_a, leaf_v = "org.finos.demo", "child", "1.0.0"
+    parent_g, parent_a, parent_v = "org.finos.demo", "parent", "1.0.0"
+    leaf_url = _maven_pom_url(leaf_g, leaf_a, leaf_v)
+    parent_url = _maven_pom_url(parent_g, parent_a, parent_v)
+    leaf_pom = f"""<project>
+  <parent>
+    <groupId>{parent_g}</groupId>
+    <artifactId>{parent_a}</artifactId>
+    <version>{parent_v}</version>
+  </parent>
+</project>"""
+    parent_pom = """<project>
+  <developers>
+    <developer><name>Steve Heron</name></developer>
+    <developer><name>Chris Stevenson</name></developer>
+  </developers>
+</project>"""
+    client = FakeClient(
+        {
+            leaf_url: FakeResponse(text_data=leaf_pom),
+            parent_url: FakeResponse(text_data=parent_pom),
+        }
+    )
+    out = _maven_contributors_label(client, leaf_g, leaf_a, leaf_v, leaf_pom_text=leaf_pom)
+    assert out == "Steve Heron, Chris Stevenson"
+
+
+def test_maven_contributors_label_no_developers_returns_none():
+    pom_url = _maven_pom_url("org.finos.demo", "solo", "1.0.0")
+    client = FakeClient({pom_url: FakeResponse(text_data="<project/>")})
+    assert _maven_contributors_label(client, "org.finos.demo", "solo", "1.0.0") is None
 
 
 def test_maven_pom_description_http_error_returns_none():

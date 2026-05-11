@@ -15,7 +15,7 @@ import httpx
 from weekly_releases.description_text import normalize_release_description
 from weekly_releases.github_auth import github_api_headers
 from weekly_releases.landscape import LandscapeIndex
-from weekly_releases.models import Release
+from weekly_releases.models import Release, format_publisher_label
 from weekly_releases.resolution import full_github_name, resolve_project_and_repo
 
 # Solr ``core=gav`` ``timestamp`` window is widened backward so laggy indexing still surfaces
@@ -24,6 +24,7 @@ MAVEN_SOLR_DISCOVERY_BUFFER_DAYS = 14
 # If Solr returns more raw rows than this, fall back to the legacy per-coordinate scan to avoid
 # tens of thousands of deps.dev GetVersion calls in one run.
 MAVEN_SOLR_GAV_MAX_RAW_HITS = 25_000
+MAVEN_PARENT_CHAIN_MAX_DEPTH = 6
 
 
 def maven_solr_gav_timestamp_bounds(
@@ -63,7 +64,7 @@ def _maven_search_artifact_url(group_id: str, artifact: str, version: str) -> st
     return f"https://search.maven.org/artifact/{g}/{a}/{v}/jar"
 
 
-def _maven_pom_description(
+def _maven_pom_text(
     client: httpx.Client, group_id: str, artifact: str, version: str
 ) -> str | None:
     url = _maven_pom_url(group_id, artifact, version)
@@ -71,36 +72,183 @@ def _maven_pom_description(
         resp = client.get(url)
         if resp.status_code != 200:
             return None
-        m = re.search(r"<description>\s*(.*?)\s*</description>", resp.text, re.DOTALL)
-        if not m:
-            return None
-        inner = m.group(1).strip()
-        if inner.startswith("<![CDATA[") and inner.endswith("]]>"):
-            inner = inner[9:-3].strip()
-        return inner or None
+        return resp.text
     except httpx.HTTPError:
         return None
 
 
-def _npm_version_description(
-    client: httpx.Client, package_name: str, version: str
+def _maven_description_from_pom_text(text: str) -> str | None:
+    m = re.search(r"<description>\s*(.*?)\s*</description>", text, re.DOTALL)
+    if not m:
+        return None
+    inner = m.group(1).strip()
+    if inner.startswith("<![CDATA[") and inner.endswith("]]>"):
+        inner = inner[9:-3].strip()
+    return inner or None
+
+
+def _maven_xml_text_inner(block: str, tag: str) -> str | None:
+    xm = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", block, re.IGNORECASE | re.DOTALL)
+    if not xm:
+        return None
+    raw = xm.group(1).strip()
+    if raw.startswith("<![CDATA[") and raw.endswith("]]>"):
+        raw = raw[9:-3].strip()
+    raw = re.sub(r"\s+", " ", raw)
+    return raw or None
+
+
+def _maven_developer_labels_from_pom_text(pom_text: str) -> list[str]:
+    """All ``<developer>`` entries under ``<developers>`` as ``format_publisher_label(name, id)``."""
+    labels: list[str] = []
+    m = re.search(
+        r"<developers[^>]*>(.*?)</developers>", pom_text, re.IGNORECASE | re.DOTALL
+    )
+    if not m:
+        return labels
+    inner = m.group(1)
+    for dm in re.finditer(
+        r"<developer[^>]*>(.*?)</developer>", inner, re.IGNORECASE | re.DOTALL
+    ):
+        block = dm.group(1)
+        name = _maven_xml_text_inner(block, "name")
+        did = _maven_xml_text_inner(block, "id")
+        lab = format_publisher_label(name, did)
+        if lab:
+            labels.append(lab)
+    return labels
+
+
+def _maven_parent_coordinates_from_pom(pom_text: str) -> tuple[str, str, str] | None:
+    """Return ``(groupId, artifactId, version)`` from the first ``<parent>`` block, if complete."""
+    pm = re.search(r"<parent[^>]*>(.*?)</parent>", pom_text, re.IGNORECASE | re.DOTALL)
+    if not pm:
+        return None
+    block = pm.group(1)
+    gid = _maven_xml_text_inner(block, "groupId")
+    aid = _maven_xml_text_inner(block, "artifactId")
+    ver = _maven_xml_text_inner(block, "version")
+    if not gid or not aid or not ver:
+        return None
+    if ver.startswith("${") and ver.endswith("}"):
+        return None
+    return gid, aid, ver
+
+
+def _maven_contributors_label(
+    client: httpx.Client,
+    group_id: str,
+    artifact_id: str,
+    version: str,
+    *,
+    leaf_pom_text: str | None = None,
 ) -> str | None:
+    """Developer names from the artifact POM and its ``<parent>`` chain (Maven Central)."""
+    seen_coords: set[tuple[str, str, str]] = set()
+    ordered: list[str] = []
+    seen_cf: set[str] = set()
+    g, a, v = group_id, artifact_id, version
+    leaf_key = (group_id, artifact_id, version)
+    for _ in range(MAVEN_PARENT_CHAIN_MAX_DEPTH):
+        coord = (g, a, v)
+        if coord in seen_coords:
+            break
+        seen_coords.add(coord)
+        if leaf_pom_text is not None and coord == leaf_key:
+            text = leaf_pom_text
+        else:
+            text = _maven_pom_text(client, g, a, v)
+        if not text:
+            break
+        for lab in _maven_developer_labels_from_pom_text(text):
+            cf = lab.casefold()
+            if cf not in seen_cf:
+                seen_cf.add(cf)
+                ordered.append(lab)
+        parent = _maven_parent_coordinates_from_pom(text)
+        if not parent:
+            break
+        g, a, v = parent
+    return ", ".join(ordered) if ordered else None
+
+
+def _maven_pom_description(
+    client: httpx.Client, group_id: str, artifact: str, version: str
+) -> str | None:
+    text = _maven_pom_text(client, group_id, artifact, version)
+    return _maven_description_from_pom_text(text) if text else None
+
+
+def _npm_contributors_label_from_version_doc(data: dict[str, Any]) -> str | None:
+    """Comma-separated maintainer / uploader names (order: maintainers, then ``_npmUser``)."""
+    ordered: list[str] = []
+    seen_cf: set[str] = set()
+
+    def add(raw: str) -> None:
+        s = raw.strip()
+        if not s:
+            return
+        cf = s.casefold()
+        if cf not in seen_cf:
+            seen_cf.add(cf)
+            ordered.append(s)
+
+    mlist = data.get("maintainers")
+    if isinstance(mlist, list):
+        for m in mlist:
+            if isinstance(m, dict):
+                n = m.get("name")
+                if isinstance(n, str):
+                    add(n)
+    nu = data.get("_npmUser")
+    if isinstance(nu, dict):
+        un = nu.get("name")
+        if isinstance(un, str):
+            add(un)
+    return ", ".join(ordered) if ordered else None
+
+
+def _npm_version_detail(
+    client: httpx.Client, package_name: str, version: str
+) -> tuple[str | None, str | None]:
+    """Return ``(description, contributors_label)`` from the npm version document."""
     enc_pkg = quote(package_name, safe="")
     enc_ver = quote(version, safe="")
     try:
         resp = client.get(f"https://registry.npmjs.org/{enc_pkg}/{enc_ver}")
         if resp.status_code != 200:
-            return None
+            return None, None
         try:
             data = resp.json()
         except json.JSONDecodeError:
-            return None
+            return None, None
         if not isinstance(data, dict):
-            return None
+            return None, None
         d = data.get("description")
-        return d if isinstance(d, str) else None
+        desc = d if isinstance(d, str) else None
+        pub = _npm_contributors_label_from_version_doc(data)
+        return desc, pub
     except httpx.HTTPError:
+        return None, None
+
+
+def _npm_version_description(
+    client: httpx.Client, package_name: str, version: str
+) -> str | None:
+    desc, _pub = _npm_version_detail(client, package_name, version)
+    return desc
+
+
+def _github_release_publisher(rel: dict[str, Any]) -> str | None:
+    author = rel.get("author")
+    if not isinstance(author, dict):
         return None
+    login = author.get("login")
+    if not isinstance(login, str) or not login.strip():
+        return None
+    name = author.get("name")
+    display = name.strip() if isinstance(name, str) and name.strip() else None
+    return format_publisher_label(display, login.strip())
 
 
 @dataclass(slots=True)
@@ -163,6 +311,7 @@ def crawl_github(context: SourceContext) -> list[Release]:
                         released_at=when,
                         github_repo=github_repo,
                         description=normalize_release_description(desc_raw),
+                        publisher=_github_release_publisher(rel),
                     )
                 )
     return releases
@@ -405,9 +554,19 @@ def _maven_releases_for_ga_row(
     ):
         if not _in_range(when, context.start, context.end):
             continue
-        pom_desc = _maven_pom_description(
-            context.client, group_id, artifact_id, version
-        )
+        pom_text = _maven_pom_text(context.client, group_id, artifact_id, version)
+        if pom_text:
+            pom_desc = _maven_description_from_pom_text(pom_text)
+            publisher = _maven_contributors_label(
+                context.client,
+                group_id,
+                artifact_id,
+                version,
+                leaf_pom_text=pom_text,
+            )
+        else:
+            pom_desc = None
+            publisher = None
         releases.append(
             Release(
                 project=project,
@@ -418,6 +577,7 @@ def _maven_releases_for_ga_row(
                 released_at=when,
                 github_repo=full_github_name(slug),
                 description=normalize_release_description(pom_desc),
+                publisher=publisher,
             )
         )
     return releases
@@ -439,7 +599,19 @@ def _maven_releases_for_gav_triple(
         keys,
         maven_group_id=group_id,
     )
-    pom_desc = _maven_pom_description(context.client, group_id, artifact_id, version)
+    pom_text = _maven_pom_text(context.client, group_id, artifact_id, version)
+    if pom_text:
+        pom_desc = _maven_description_from_pom_text(pom_text)
+        publisher = _maven_contributors_label(
+            context.client,
+            group_id,
+            artifact_id,
+            version,
+            leaf_pom_text=pom_text,
+        )
+    else:
+        pom_desc = None
+        publisher = None
     return [
         Release(
             project=project,
@@ -450,6 +622,7 @@ def _maven_releases_for_gav_triple(
             released_at=when,
             github_repo=full_github_name(slug),
             description=normalize_release_description(pom_desc),
+            publisher=publisher,
         )
     ]
 
@@ -624,7 +797,7 @@ def crawl_npm(context: SourceContext) -> list[Release]:
             project, slug = resolve_project_and_repo(
                 context.landscape, context.finos_repo_names, keys
             )
-            npm_desc = _npm_version_description(context.client, name, version)
+            npm_desc, npm_pub = _npm_version_detail(context.client, name, version)
             releases.append(
                 Release(
                     project=project,
@@ -635,6 +808,7 @@ def crawl_npm(context: SourceContext) -> list[Release]:
                     released_at=when,
                     github_repo=full_github_name(slug),
                     description=normalize_release_description(npm_desc),
+                    publisher=npm_pub,
                 )
             )
         offset += len(objects)
@@ -644,6 +818,25 @@ def crawl_npm(context: SourceContext) -> list[Release]:
         elif len(objects) < page_size:
             break
     return releases
+
+
+def _pypi_contributors_from_info(info: dict[str, Any]) -> str | None:
+    """Comma-separated names from ``info.author`` / ``info.maintainer`` (split on commas)."""
+    ordered: list[str] = []
+    seen_cf: set[str] = set()
+    for key in ("author", "maintainer"):
+        raw = info.get(key)
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        for piece in raw.split(","):
+            s = piece.strip()
+            if not s:
+                continue
+            cf = s.casefold()
+            if cf not in seen_cf:
+                seen_cf.add(cf)
+                ordered.append(s)
+    return ", ".join(ordered) if ordered else None
 
 
 def crawl_pypi(context: SourceContext) -> list[Release]:
@@ -690,6 +883,7 @@ def crawl_pypi(context: SourceContext) -> list[Release]:
             py_raw = long_desc
         else:
             py_raw = None
+        py_pub = _pypi_contributors_from_info(info)
         releases.append(
             Release(
                 project=project,
@@ -700,6 +894,7 @@ def crawl_pypi(context: SourceContext) -> list[Release]:
                 released_at=when,
                 github_repo=full_github_name(slug),
                 description=normalize_release_description(py_raw),
+                publisher=py_pub,
             )
         )
     return releases
@@ -746,6 +941,12 @@ def crawl_docker_hub(context: SourceContext) -> list[Release]:
             project, slug = resolve_project_and_repo(
                 context.landscape, context.finos_repo_names, keys
             )
+            lu = tag.get("last_updater_username")
+            docker_pub = (
+                format_publisher_label(None, lu.strip())
+                if isinstance(lu, str) and lu.strip()
+                else None
+            )
             releases.append(
                 Release(
                     project=project,
@@ -756,6 +957,7 @@ def crawl_docker_hub(context: SourceContext) -> list[Release]:
                     released_at=when,
                     github_repo=full_github_name(slug),
                     description=docker_desc,
+                    publisher=docker_pub,
                 )
             )
     return releases

@@ -120,6 +120,68 @@ landscape:
     assert index.repo_for_asset("legend-studio") == "legend-studio"
 
 
+def test_parse_landscape_repairs_missing_commas_in_docker_hub_flow_sequence():
+    """Upstream finos-landscape has shipped a one-line ``docker_hub: [ "a" "b" ]`` typo (no comma)."""
+    raw = """
+landscape:
+  items:
+    - name: Legend
+      item:
+        repo_url: https://github.com/finos/legend
+      extra:
+        docker_hub: ["finos legend-engine-pure-ide-light-http-server" "finos legend-engine-server-http-server"]
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_repo("legend") == "Legend"
+    assert (
+        index.project_for_asset("finos/legend-engine-pure-ide-light-http-server")
+        == "Legend"
+    )
+    assert (
+        index.project_for_asset("finos/legend-engine-server-http-server") == "Legend"
+    )
+
+
+def test_parse_landscape_npmjs_finos_slash_form_maps_at_finos_packages():
+    """``npmjs: [finos/calm-cli]`` (upstream style) must match crawl artifact ``@finos/calm-cli``."""
+    raw = """
+landscape:
+  items:
+    - name: CALM
+      item:
+      repo_url: https://github.com/finos/calm
+      extra:
+        npmjs: ["finos/calm-cli"]
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_asset("@finos/calm-cli") == "CALM"
+    assert index.project_for_asset("calm-cli") == "CALM"
+    assert index.project_for_asset("finos/calm-cli") == "CALM"
+
+
+def test_parse_landscape_extra_docker_hub_npmjs_pypi():
+    """FINOS cards often list produced artifacts only under ``extra``."""
+    raw = """
+landscape:
+  items:
+    - name: CALM
+      item:
+      repo_url: https://github.com/finos/calm
+      extra:
+        docker_hub:
+          - finos/calm-hub
+        npmjs:
+          - "@finos/calm-cli"
+        pypi:
+          - rune_runtime
+"""
+    index = parse_landscape(raw)
+    assert index.project_for_repo("calm") == "CALM"
+    assert index.project_for_asset("finos/calm-hub") == "CALM"
+    assert index.project_for_asset("@finos/calm-cli") == "CALM"
+    assert index.project_for_asset("rune_runtime") == "CALM"
+
+
 def test_parse_landscape_maven_groupid_maps_nested_groups():
     raw = """
 landscape:

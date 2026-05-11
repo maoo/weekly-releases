@@ -92,6 +92,9 @@ def fetch_all_finos_repo_names(client: httpx.Client) -> frozenset[str]:
 class RunResult:
     output_files: list[Path]
     releases: list[Release]
+    #: True when the ISO week containing ``today`` was already written in this run
+    #: (backfill loop or ``--current-week``), so a trailing refresh crawl is skipped.
+    wrote_current_iso_week: bool = False
 
 
 def _crawl_with_guard(
@@ -175,6 +178,37 @@ def _releases_in_iso_week(
     return [rel for rel in releases if release_iso_week(rel.released_at) == key]
 
 
+def _refresh_current_iso_week_report(
+    output_dir: Path,
+    today: date,
+    landscape_source: str | None,
+    report: Callable[[str], None],
+    *,
+    output_format: OutputFormat,
+) -> tuple[Path | None, list[Release]]:
+    """Re-crawl the ISO week containing ``today`` and overwrite that week's report file."""
+    start, end = current_week_bounds(today)
+    iso = today.isocalendar()
+    report(
+        "Refreshing current ISO week "
+        f"{iso.year}-W{iso.week:02d} "
+        f"({start.date().isoformat()} → {end.date().isoformat()})"
+    )
+    with _scan_http_client(report) as client:
+        context = _build_context(start, end, landscape_source, report, client)
+        all_releases = _crawl_all_sources(context, report)
+
+    weekly = _releases_in_iso_week(all_releases, iso.year, iso.week)
+    target_monday = date.fromisocalendar(iso.year, iso.week, 1)
+    output_file = write_weekly_file(
+        output_dir, target_monday, weekly, output_format=output_format
+    )
+    report(
+        f"Refreshed {iso.year}-W{iso.week:02d}: {len(weekly)} release(s) → {output_file}"
+    )
+    return output_file, weekly
+
+
 def run(
     output_dir: Path,
     today: date,
@@ -199,9 +233,28 @@ def run(
     result = _run_write(
         output_dir, today, landscape_source, report, output_format=output_format
     )
+    extra_files: list[Path] = []
+    extra_releases: list[Release] = []
+    if not result.wrote_current_iso_week:
+        path, weekly = _refresh_current_iso_week_report(
+            output_dir, today, landscape_source, report, output_format=output_format
+        )
+        extra_files.append(path)
+        extra_releases = weekly
     idx = write_releases_index(output_dir)
     report(f"Updated {idx}")
-    return result
+    # Avoid duplicating releases when backfill already crawled a window that includes
+    # the current ISO week; only substitute when the refresh was the sole write.
+    merged_releases = (
+        extra_releases
+        if extra_files and not result.output_files
+        else result.releases
+    )
+    return RunResult(
+        output_files=[*result.output_files, *extra_files],
+        releases=merged_releases,
+        wrote_current_iso_week=result.wrote_current_iso_week or bool(extra_files),
+    )
 
 
 def _run_dry(
@@ -219,7 +272,7 @@ def _run_dry(
         context = _build_context(start, end, landscape_source, report, client)
         releases = _crawl_all_sources(context, report)
     report(f"Dry run complete: {len(releases)} total releases")
-    return RunResult(output_files=[], releases=releases)
+    return RunResult(output_files=[], releases=releases, wrote_current_iso_week=False)
 
 
 def _run_current_week_write(
@@ -247,7 +300,9 @@ def _run_current_week_write(
         output_dir, target_monday, weekly, output_format=output_format
     )
     report(f"Wrote {len(weekly)} releases to {output_file}")
-    return RunResult(output_files=[output_file], releases=weekly)
+    return RunResult(
+        output_files=[output_file], releases=weekly, wrote_current_iso_week=True
+    )
 
 
 def _run_write(
@@ -262,9 +317,12 @@ def _run_write(
     if not missing:
         report(
             f"All weeks from {EPOCH_DATE.isoformat()} through "
-            f"{today.isoformat()} are already present; nothing to do"
+            f"{today.isoformat()} are already present; no backfill writes"
         )
-        return RunResult(output_files=[], releases=[])
+        return RunResult(output_files=[], releases=[], wrote_current_iso_week=False)
+
+    iso = today.isocalendar()
+    cw_key = (iso.year, iso.week)
 
     report(
         f"Backfilling {len(missing)} missing week(s) since {EPOCH_DATE.isoformat()}: "
@@ -299,4 +357,8 @@ def _run_write(
         output_files.append(output_file)
         report(f"Wrote {len(weekly)} releases to {output_file}")
 
-    return RunResult(output_files=output_files, releases=all_releases)
+    return RunResult(
+        output_files=output_files,
+        releases=all_releases,
+        wrote_current_iso_week=cw_key in missing,
+    )

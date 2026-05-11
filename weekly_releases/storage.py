@@ -1,12 +1,50 @@
 from __future__ import annotations
 
 import html
+import re
 from datetime import date
 from itertools import groupby
 from pathlib import Path
 
 from weekly_releases.models import Release
 from weekly_releases.timebox import OutputFormat, iso_week_file
+
+# Index lists only on-disk ISO week-year folders from this year onward (project epoch).
+_INDEX_EPOCH_ISO_YEAR = 2026
+_MONTH_NAMES_EN = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+
+# Monthly rollup pages live next to ``WW.html`` under the ISO week-year folder.
+_WEEKLY_PROJECT_BLOCK_RE = re.compile(
+    r'<details class="project">\s*'
+    r"<summary>(?P<summary>.*?)</summary>\s*"
+    r'<ul class="releases">\s*(?P<ulbody>.*?)\s*</ul>\s*</details>',
+    re.DOTALL | re.IGNORECASE,
+)
+_RELEASE_LI_RE = re.compile(
+    r'<li class="release">.*?</li>',
+    re.DOTALL | re.IGNORECASE,
+)
+_SUMMARY_COUNT_SPAN_RE = re.compile(
+    r'<span class="summary-count">\s*\([^)]*\)\s*</span>',
+    re.IGNORECASE | re.DOTALL,
+)
+_RELEASE_DATE_RE = re.compile(
+    r"(\d{4}-\d{2}-\d{2})</span>\s*<span class=\"sep\">\|</span>\s*<a class=\"link\"",
+    re.IGNORECASE,
+)
 
 _HTML_STYLES = """
 :root {
@@ -157,6 +195,8 @@ def _release_li_html(rel: Release) -> str:
     version = html.escape(rel.version)
     source = html.escape(rel.source)
     url_esc = html.escape(rel.url, quote=True)
+    pub_raw = rel.publisher if rel.publisher else "—"
+    pub = html.escape(pub_raw)
     parts = [
         f'<span class="mono">{gh}</span>',
         '<span class="sep">|</span>',
@@ -165,6 +205,8 @@ def _release_li_html(rel: Release) -> str:
         f'<span class="mono">{artifact}</span>',
         '<span class="sep">|</span>',
         f'<span class="mono">{version}</span>',
+        '<span class="sep">|</span>',
+        f"<span>{pub}</span>",
         '<span class="sep">|</span>',
         f"<span>{date_value}</span>",
         '<span class="sep">|</span>',
@@ -218,7 +260,8 @@ def render_html(target_date: date, releases: list[Release]) -> str:
 <div class="wrap">
 <header>
 <h1>{title_esc}</h1>
-<p>FINOS community releases (UTC), grouped by project.</p>
+<p>FINOS community releases (UTC), grouped by project. Release rows show
+<strong>contributors</strong> (comma-separated when known) in the fifth column.</p>
 </header>
 <main>
 {body_inner}
@@ -351,6 +394,53 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   color: var(--muted);
   font-size: 0.92rem;
 }
+.year-browse {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem 1.5rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .year-browse { grid-template-columns: 1fr; }
+}
+.browse-heading {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  color: var(--muted);
+}
+.month-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.month-block h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.browse-column .week-links { margin-top: 0; }
+.month-page-link {
+  margin: 0;
+}
+.month-page-link a {
+  display: inline-block;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+.month-page-link a:hover {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
 """
 
 
@@ -375,32 +465,211 @@ def collect_year_week_html_files(base_dir: Path) -> list[tuple[int, list[int]]]:
     return rows
 
 
+def _iso_week_calendar_month(iso_year: int, week: int) -> tuple[int, int]:
+    """Gregorian (year, month) that contains the Thursday of the ISO week."""
+    thursday = date.fromisocalendar(iso_year, week, 4)
+    return thursday.year, thursday.month
+
+
+def _group_weeks_by_calendar_month(
+    iso_year: int, weeks: list[int]
+) -> list[tuple[tuple[int, int], list[int]]]:
+    buckets: dict[tuple[int, int], list[int]] = {}
+    for w in weeks:
+        key = _iso_week_calendar_month(iso_year, w)
+        buckets.setdefault(key, []).append(w)
+    for wlist in buckets.values():
+        wlist.sort()
+    return sorted(buckets.items(), key=lambda item: item[0])
+
+
+def _release_li_sort_key(li_html: str) -> str:
+    m = _RELEASE_DATE_RE.search(li_html)
+    return m.group(1) if m else ""
+
+
+def parse_weekly_html_project_blocks(page_html: str) -> dict[str, list[str]]:
+    """Parse a saved weekly ``render_html`` document into project label → ``<li>`` HTML."""
+    out: dict[str, list[str]] = {}
+    for m in _WEEKLY_PROJECT_BLOCK_RE.finditer(page_html):
+        summary_inner = m.group("summary").strip()
+        label_key = _SUMMARY_COUNT_SPAN_RE.sub("", summary_inner).strip()
+        if not label_key:
+            continue
+        ulbody = m.group("ulbody")
+        items = [mm.group(0) for mm in _RELEASE_LI_RE.finditer(ulbody)]
+        if not items:
+            continue
+        out.setdefault(label_key, []).extend(items)
+    return out
+
+
+def merge_calendar_month_project_lists(
+    per_week: list[dict[str, list[str]]],
+) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for week_map in per_week:
+        for proj, items in week_map.items():
+            merged.setdefault(proj, []).extend(items)
+    for _proj, items in merged.items():
+        items.sort(key=_release_li_sort_key)
+    return merged
+
+
+def render_calendar_month_html(
+    calendar_year: int, calendar_month: int, projects: dict[str, list[str]]
+) -> str:
+    """Standalone HTML for one Gregorian month (same layout as ``render_html``)."""
+    month_name = _MONTH_NAMES_EN[calendar_month - 1]
+    title = f"FINOS releases for {month_name} {calendar_year}"
+    title_esc = html.escape(title)
+    if not projects:
+        body_inner = '<p class="empty">No releases found in this period.</p>'
+    else:
+        blocks: list[str] = []
+        for proj_label_html, group_items in sorted(
+            projects.items(), key=lambda kv: (kv[0].lower(), kv[0])
+        ):
+            n = len(group_items)
+            lis = "\n".join(group_items)
+            blocks.append(
+                f'<details class="project">\n'
+                f"<summary>{proj_label_html}"
+                f'<span class="summary-count"> ({n})</span></summary>\n'
+                f'<ul class="releases">\n{lis}\n</ul>\n'
+                f"</details>"
+            )
+        body_inner = f'<div class="projects">\n{"".join(blocks)}\n</div>'
+    header_p = (
+        "FINOS community releases (UTC) for this calendar month, grouped by project. "
+        "Built from ISO week HTML files whose Thursday falls in this month. "
+        "Release rows show <strong>contributors</strong> (comma-separated when known) "
+        "in the fifth column."
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title_esc}</title>
+<style>
+{_HTML_STYLES}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>{title_esc}</h1>
+<p>{header_p}</p>
+</header>
+<main>
+{body_inner}
+</main>
+</div>
+</body>
+</html>
+"""
+
+
+def _calendar_month_href(iso_year: int, cal_year: int, cal_month: int) -> str:
+    return f"{iso_year}/calendar-{cal_year}-{cal_month:02d}.html"
+
+
+def _render_index_month_page_link(iso_year: int, cal_year: int, cal_month: int) -> str:
+    href = html.escape(_calendar_month_href(iso_year, cal_year, cal_month), quote=True)
+    label = html.escape(f"{_MONTH_NAMES_EN[cal_month - 1]} {cal_year} — all releases")
+    return f'<p class="month-page-link"><a href="{href}">{label}</a></p>'
+
+
+def write_calendar_month_pages(base_dir: Path) -> None:
+    """Write ``calendar-YYYY-MM.html`` under each ISO week-year folder from week reports."""
+    raw_rows = collect_year_week_html_files(base_dir)
+    for iso_year, weeks in raw_rows:
+        if iso_year < _INDEX_EPOCH_ISO_YEAR or not weeks:
+            continue
+        for (gy, gm), wk_list in _group_weeks_by_calendar_month(iso_year, weeks):
+            per_week: list[dict[str, list[str]]] = []
+            for w in sorted(wk_list):
+                path = base_dir / str(iso_year) / f"{w:02d}.html"
+                if not path.is_file():
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                per_week.append(parse_weekly_html_project_blocks(text))
+            merged = merge_calendar_month_project_lists(per_week)
+            out_path = base_dir / str(iso_year) / f"calendar-{gy}-{gm:02d}.html"
+            out_path.write_text(
+                render_calendar_month_html(gy, gm, merged), encoding="utf-8"
+            )
+
+
+def _render_index_week_links(year: int, week_nums: list[int]) -> str:
+    lis: list[str] = []
+    for w in week_nums:
+        href = html.escape(f"{year}/{w:02d}.html", quote=True)
+        label = html.escape(f"Week {w:02d}")
+        lis.append(f'<li><a href="{href}">{label}</a></li>')
+    return f'<ul class="week-links">\n{"".join(lis)}\n</ul>'
+
+
 def render_releases_index_html(base_dir: Path) -> str:
     """Standalone HTML listing each year folder and links to ``WW.html`` week reports."""
-    rows = collect_year_week_html_files(base_dir)
-    title = "FINOS weekly releases"
+    raw_rows = collect_year_week_html_files(base_dir)
+    rows = [(y, w) for y, w in raw_rows if y >= _INDEX_EPOCH_ISO_YEAR]
+    title = "FINOS Releases"
     title_esc = html.escape(title)
-    if not rows:
+    if not raw_rows:
         main_inner = (
             '<p class="empty-year">No year folders or HTML week reports yet.</p>'
+        )
+    elif not rows:
+        main_inner = (
+            '<p class="empty-year">'
+            f"No HTML week reports for {_INDEX_EPOCH_ISO_YEAR} or later yet.</p>"
         )
     else:
         sections: list[str] = []
         for year, weeks in rows:
             y_esc = html.escape(str(year))
             if weeks:
-                lis = []
-                for w in weeks:
-                    href = html.escape(f"{year}/{w:02d}.html", quote=True)
-                    label = html.escape(f"Week {w:02d}")
-                    lis.append(f'<li><a href="{href}">{label}</a></li>')
-                ul = f'<ul class="week-links">\n{"".join(lis)}\n</ul>'
+                month_chunks: list[str] = []
+                for (gy, gm), _wks in _group_weeks_by_calendar_month(year, weeks):
+                    label_esc = html.escape(f"{_MONTH_NAMES_EN[gm - 1]} {gy}")
+                    month_chunks.append(
+                        f'<div class="month-block">\n<h4>{label_esc}</h4>\n'
+                        f"{_render_index_month_page_link(year, gy, gm)}\n</div>"
+                    )
+                months_html = "\n".join(month_chunks)
+                weeks_html = _render_index_week_links(year, weeks)
+                inner = (
+                    f'<div class="year-browse">\n'
+                    f'<div class="browse-column">\n'
+                    f'<h3 class="browse-heading">By month</h3>\n'
+                    f'<div class="month-groups">\n{months_html}\n</div>\n'
+                    f"</div>\n"
+                    f'<div class="browse-column">\n'
+                    f'<h3 class="browse-heading">By week</h3>\n'
+                    f"{weeks_html}\n"
+                    f"</div>\n"
+                    f"</div>"
+                )
             else:
-                ul = '<p class="empty-year">No HTML week reports for this year.</p>'
+                inner = '<p class="empty-year">No HTML week reports for this year.</p>'
             sections.append(
-                f'<section class="year-block">\n<h2>{y_esc}</h2>\n{ul}\n</section>'
+                f'<section class="year-block">\n<h2>{y_esc}</h2>\n{inner}\n</section>'
             )
         main_inner = "\n".join(sections)
+    subtitle = (
+        "Reports from 1&nbsp;January&nbsp;2026 (UTC). "
+        "Week files use <code>YYYY/WW.html</code> (ISO week-year folder "
+        "<code>YYYY/</code> and zero-padded week <code>WW</code>). "
+        "Under <strong>By month</strong>, one page per Gregorian month "
+        "(same Thursday rule as before) aggregates every week in that month, "
+        "grouped by project. <strong>By week</strong> still links each "
+        "<code>WW.html</code> file."
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -415,7 +684,7 @@ def render_releases_index_html(base_dir: Path) -> str:
 <div class="wrap">
 <header>
 <h1>{title_esc}</h1>
-<p>Browse reports by ISO calendar year and week (<code>YYYY/WW.html</code>).</p>
+<p>{subtitle}</p>
 </header>
 <main>
 {main_inner}
@@ -427,8 +696,9 @@ def render_releases_index_html(base_dir: Path) -> str:
 
 
 def write_releases_index(base_dir: Path) -> Path:
-    """Write ``base_dir/index.html`` listing year subfolders and week HTML pages."""
+    """Write ``base_dir/index.html`` and ``calendar-YYYY-MM.html`` month rollups."""
     base_dir.mkdir(parents=True, exist_ok=True)
+    write_calendar_month_pages(base_dir)
     path = base_dir / "index.html"
     path.write_text(render_releases_index_html(base_dir), encoding="utf-8")
     return path

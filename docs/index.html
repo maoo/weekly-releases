@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FINOS weekly releases</title>
+<title>FINOS Releases</title>
 <style>
 
 :root {
@@ -81,21 +81,90 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   color: var(--muted);
   font-size: 0.92rem;
 }
+.year-browse {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem 1.5rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .year-browse { grid-template-columns: 1fr; }
+}
+.browse-heading {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.045em;
+  color: var(--muted);
+}
+.month-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.month-block h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+.browse-column .week-links { margin-top: 0; }
 
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
-<h1>FINOS weekly releases</h1>
-<p>Browse reports by ISO calendar year and week (<code>YYYY/WW.html</code>).</p>
+<h1>FINOS Releases</h1>
+<p>Reports from 1&nbsp;January&nbsp;2026 (UTC). Week files use <code>YYYY/WW.html</code> (ISO week-year folder <code>YYYY/</code> and zero-padded week <code>WW</code>). Under <strong>By month</strong>, each week is listed once, under the Gregorian month that contains that week&rsquo;s Thursday.</p>
 </header>
 <main>
 <section class="year-block">
 <h2>2026</h2>
+<div class="year-browse">
+<div class="browse-column">
+<h3 class="browse-heading">By month</h3>
+<div class="month-groups">
+<div class="month-block">
+<h4>January 2026</h4>
 <ul class="week-links">
-<li><a href="2026/01.html">Week 01</a></li><li><a href="2026/02.html">Week 02</a></li><li><a href="2026/03.html">Week 03</a></li><li><a href="2026/04.html">Week 04</a></li><li><a href="2026/05.html">Week 05</a></li><li><a href="2026/06.html">Week 06</a></li><li><a href="2026/07.html">Week 07</a></li><li><a href="2026/08.html">Week 08</a></li><li><a href="2026/09.html">Week 09</a></li><li><a href="2026/10.html">Week 10</a></li><li><a href="2026/11.html">Week 11</a></li><li><a href="2026/12.html">Week 12</a></li><li><a href="2026/13.html">Week 13</a></li><li><a href="2026/14.html">Week 14</a></li><li><a href="2026/15.html">Week 15</a></li><li><a href="2026/16.html">Week 16</a></li><li><a href="2026/17.html">Week 17</a></li><li><a href="2026/18.html">Week 18</a></li><li><a href="2026/19.html">Week 19</a></li>
+<li><a href="2026/01.html">Week 01</a></li><li><a href="2026/02.html">Week 02</a></li><li><a href="2026/03.html">Week 03</a></li><li><a href="2026/04.html">Week 04</a></li><li><a href="2026/05.html">Week 05</a></li>
 </ul>
+</div>
+<div class="month-block">
+<h4>February 2026</h4>
+<ul class="week-links">
+<li><a href="2026/06.html">Week 06</a></li><li><a href="2026/07.html">Week 07</a></li><li><a href="2026/08.html">Week 08</a></li><li><a href="2026/09.html">Week 09</a></li>
+</ul>
+</div>
+<div class="month-block">
+<h4>March 2026</h4>
+<ul class="week-links">
+<li><a href="2026/10.html">Week 10</a></li><li><a href="2026/11.html">Week 11</a></li><li><a href="2026/12.html">Week 12</a></li><li><a href="2026/13.html">Week 13</a></li>
+</ul>
+</div>
+<div class="month-block">
+<h4>April 2026</h4>
+<ul class="week-links">
+<li><a href="2026/14.html">Week 14</a></li><li><a href="2026/15.html">Week 15</a></li><li><a href="2026/16.html">Week 16</a></li><li><a href="2026/17.html">Week 17</a></li><li><a href="2026/18.html">Week 18</a></li>
+</ul>
+</div>
+<div class="month-block">
+<h4>May 2026</h4>
+<ul class="week-links">
+<li><a href="2026/19.html">Week 19</a></li><li><a href="2026/20.html">Week 20</a></li>
+</ul>
+</div>
+</div>
+</div>
+<div class="browse-column">
+<h3 class="browse-heading">By week</h3>
+<ul class="week-links">
+<li><a href="2026/01.html">Week 01</a></li><li><a href="2026/02.html">Week 02</a></li><li><a href="2026/03.html">Week 03</a></li><li><a href="2026/04.html">Week 04</a></li><li><a href="2026/05.html">Week 05</a></li><li><a href="2026/06.html">Week 06</a></li><li><a href="2026/07.html">Week 07</a></li><li><a href="2026/08.html">Week 08</a></li><li><a href="2026/09.html">Week 09</a></li><li><a href="2026/10.html">Week 10</a></li><li><a href="2026/11.html">Week 11</a></li><li><a href="2026/12.html">Week 12</a></li><li><a href="2026/13.html">Week 13</a></li><li><a href="2026/14.html">Week 14</a></li><li><a href="2026/15.html">Week 15</a></li><li><a href="2026/16.html">Week 16</a></li><li><a href="2026/17.html">Week 17</a></li><li><a href="2026/18.html">Week 18</a></li><li><a href="2026/19.html">Week 19</a></li><li><a href="2026/20.html">Week 20</a></li>
+</ul>
+</div>
+</div>
 </section>
 </main>
 </div>
