@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FINOS releases for 2026 week 16</title>
+<style>
+
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 1.5rem clamp(1rem, 4vw, 2.5rem) 3rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  background: linear-gradient(165deg, #eef2ff 0%, var(--bg) 38%, var(--bg) 100%);
+  min-height: 100vh;
+}
+.wrap {
+  max-width: 52rem;
+  margin: 0 auto;
+}
+header {
+  margin-bottom: 1.75rem;
+}
+header h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+details.project {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+details.project > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.85rem 1.1rem;
+  font-weight: 600;
+  font-size: 1rem;
+  color: #0f172a;
+  background: linear-gradient(to bottom, #fafbff, #f1f5f9);
+  border-bottom: 1px solid transparent;
+  user-select: none;
+}
+details.project > summary::-webkit-details-marker { display: none; }
+details.project > summary::marker { content: ""; }
+details.project[open] > summary {
+  border-bottom-color: var(--border);
+  background: var(--accent-soft);
+}
+details.project > summary:hover {
+  background: #e8eef7;
+}
+details.project[open] > summary:hover {
+  background: #e0eafc;
+}
+.summary-count {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.releases {
+  margin: 0;
+  padding: 0.5rem 0 0.25rem;
+  list-style: none;
+}
+.release {
+  padding: 0.85rem 1.1rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.release:last-child { border-bottom: none; }
+.release-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+.release-meta .sep { color: var(--border); user-select: none; }
+.mono {
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.84em;
+  background: #f8fafc;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  border: 1px solid #e8ecf1;
+}
+.source-tag {
+  text-transform: lowercase;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+a.link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+a.link:hover { text-decoration: underline; }
+.description {
+  margin: 0.55rem 0 0;
+  padding-left: 0.75rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  border-left: 3px solid #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.empty {
+  padding: 2rem 1.25rem;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+}
+.group-count { font-weight: 600; }
+.group-artifacts {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 4px;
+}
+.group-artifact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.5rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.group-artifact .sep { color: var(--border); user-select: none; }
+.group-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.group-more {
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--muted);
+}
+details.highlights {
+  margin: 0 0 1.5rem;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+details.highlights > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.85rem 1.1rem;
+  font-weight: 650;
+  font-size: 1rem;
+  color: #9a3412;
+  background: linear-gradient(to bottom, #ffedd5, #fed7aa);
+  user-select: none;
+  letter-spacing: -0.01em;
+}
+details.highlights > summary::-webkit-details-marker { display: none; }
+details.highlights > summary::marker { content: ""; }
+details.highlights[open] > summary {
+  border-bottom: 1px solid #fdba74;
+}
+details.highlights > summary:hover {
+  background: linear-gradient(to bottom, #ffe4b5, #fdba74);
+}
+details.highlights .release {
+  border-bottom: 1px solid #fed7aa;
+}
+details.highlights .release:last-child { border-bottom: none; }
+.release-project {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>FINOS releases for 2026 week 16</h1>
+<p>FINOS community releases (UTC), grouped by project. Release rows show
+<strong>contributors</strong> (comma-separated when known) in the fifth column.</p>
+</header>
+<main>
+<details class="highlights">
+<summary>Highlights<span class="summary-count"> (3)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-15" data-highlight="major"><div class="release-meta"><span class="release-project mono">Fluxnova</span><span class="sep">|</span><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="mono">2.0.0</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-15</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/fluxnova-bpm-platform/tags">link</a></div></li>
+<li class="release" data-sort-date="2026-04-16" data-highlight="major"><div class="release-meta"><span class="release-project mono">VUU</span><span class="sep">|</span><span class="mono">finos/vuu</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">7 artifacts</span><span class="sep">|</span><span class="mono">3.0.0</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-16</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.vuu.plugin:virtualized-table-plugin, org.finos.vuu:vuu, org.finos.vuu:vuu-ui, org.finos.vuu:toolbox, org.finos.vuu:vuu-parent, org.finos.vuu:vuu-java, org.finos.vuu:plugin</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">3.0.0</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.vuu/vuu-ui/3.0.0/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-17" data-highlight="major"><div class="release-meta"><span class="release-project mono">Rune</span><span class="sep">|</span><span class="mono">—</span><span class="sep">|</span><span class="source-tag">pypi</span><span class="sep">|</span><span class="mono">rune-runtime</span><span class="sep">|</span><span class="mono">2.0.0</span><span class="sep">|</span><span>Daniel Schwartz, Plamen Neykov, Others (See AUTHORS)</span><span class="sep">|</span><span>2026-04-17</span><span class="sep">|</span><a class="link" href="https://files.pythonhosted.org/packages/cb/ac/33eff65d5723ad781a34fcca3a3add24f30b97a896e1bd9f73c814f6a06c/rune_runtime-2.0.0.tar.gz">link</a></div><p class="description">rune-runtime: the Rune DSL runtime for Python</p></li>
+</ul>
+</details>
+<div class="projects">
+<details class="project">
+<summary>5-Spot Machine Scheduler<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/5-spot</span><span class="sep">|</span><span class="source-tag">github</span><span class="sep">|</span><span class="mono">5-spot</span><span class="sep">|</span><span class="mono">v0.1.0</span><span class="sep">|</span><span>ebourgeois</span><span class="sep">|</span><span>2026-04-14</span><span class="sep">|</span><a class="link" href="https://github.com/finos/5-spot/releases/tag/v0.1.0">link</a></div><p class="description">What&#x27;s Changed Fix cross-namespace access and add github actions for build by @ebourgeois in https://github.com/finos/5-spot/pull/1 Begin fixing several compliance work item and docs by @ebourgeois in https://github.com/finos/5-spot/pull/2 Second phase of compliance fixes by @ebourgeois in…</p></li>
+</ul>
+</details><details class="project">
+<summary>Common Architecture Language Model<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-16"><div class="release-meta"><span class="mono">—</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/calm-hub</span><span class="sep">|</span><span class="mono">sha-7587bcb</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-16</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/calm-hub/tags">link</a></div></li>
+</ul>
+</details><details class="project">
+<summary>Common Domain Model<span class="summary-count"> (2)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/common-domain-model</span><span class="sep">|</span><span class="source-tag">github, maven</span><span class="sep">|</span><span class="mono group-count">15 artifacts</span><span class="sep">|</span><span class="mono">5.35.0</span><span class="sep">|</span><span>CDM-ReleaseManagement-OT, Minesh Patel (minesh-s-patel), Hugo Hills (hugohills-regnosys), Maurizio Pillitu (maoo)</span><span class="sep">|</span><span>2026-04-14</span><span class="sep">|</span><span>multiple</span></div><p class="description">BusinessEvent and TradeState Creation - Missing activityDate in closedState when creating a Termination _Background_ CDM does not populate the activityDate in the closedState of a TradeState when using the Create_TerminationInstruction function, thus always creating a TradeState with validation…</p><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">common-domain-model, org.finos.cdm:examples, org.finos.cdm:tests, org.finos.cdm:cdm-parent, org.finos.cdm:cdm-java, org.finos.cdm:rosetta-project, org.finos.cdm:cdm-daml, org.finos.cdm:cdm-scala, org.finos.cdm:cdm-csharp8, org.finos.cdm:cdm-csharp9, org.finos.cdm:cdm-typescript, org.finos.cdm:cdm-golang, org.finos.cdm:cdm-kotlin, org.finos.cdm:cdm-excel, org.finos.cdm:cdm-json-schema</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">5.35.0</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.cdm/cdm-json-schema/5.35.0/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-17"><div class="release-meta"><span class="mono">finos/common-domain-model</span><span class="sep">|</span><span class="source-tag">github, maven</span><span class="sep">|</span><span class="mono group-count">14 artifacts</span><span class="sep">|</span><span class="mono">6.18.0</span><span class="sep">|</span><span>CDM-ReleaseManagement-OT, Minesh Patel (minesh-s-patel), Hugo Hills (hugohills-regnosys), Maurizio Pillitu (maoo)</span><span class="sep">|</span><span>2026-04-17</span><span class="sep">|</span><span>multiple</span></div><p class="description">Java test scenarios improvement - Java ingestion examples added to CDM Examples module _Background_ While ingestion examples are available in CDM 7, equivalent Java-based ingestion examples were not previously included in CDM 6, limiting users’ ability to understand and implement ingestion…</p><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">common-domain-model, org.finos.cdm:examples, org.finos.cdm:tests, org.finos.cdm:cdm-parent, org.finos.cdm:cdm-java, org.finos.cdm:cdm-daml, org.finos.cdm:cdm-scala, org.finos.cdm:cdm-csharp8, org.finos.cdm:cdm-csharp9, org.finos.cdm:cdm-typescript, org.finos.cdm:cdm-golang, org.finos.cdm:cdm-kotlin, org.finos.cdm:cdm-excel, org.finos.cdm:cdm-json-schema</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">6.18.0</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.cdm/cdm-json-schema/6.18.0/jar">link</a></div></div></li>
+</ul>
+</details><details class="project">
+<summary>Fdc3<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/FDC3</span><span class="sep">|</span><span class="source-tag">github</span><span class="sep">|</span><span class="mono group-count">2 releases</span><span class="sep">|</span><span class="mono">v2.2.2-beta.1 → v2.2.2-beta.2</span><span class="sep">|</span><span>kriswest</span><span class="sep">|</span><span>2026-04-14 → 2026-04-16</span><span class="sep">|</span><span>multiple</span></div><p class="description">npm v2.2.2-beta.2 - 2026-04-16 Maintenance release for the JavaScript implementaiton of FDC3 2.2 that includes a number of fixes to the FDC3 packages, FDC3-for-web reference implementation and FDC3 Workbench application.…</p><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">FDC3</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">v2.2.2-beta.1, v2.2.2-beta.2</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://github.com/finos/FDC3/releases/tag/v2.2.2-beta.2">link</a></div></div></li>
+</ul>
+</details><details class="project">
+<summary>Fluxnova<span class="summary-count"> (2)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-15" data-highlight="major"><div class="release-meta"><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="mono">2.0.0</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-15</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/fluxnova-bpm-platform/tags">link</a></div></li>
+<li class="release" data-sort-date="2026-04-15"><div class="release-meta"><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/fluxnova-bpm-platform</span><span class="sep">|</span><span class="mono">latest</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-15</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/fluxnova-bpm-platform/tags">link</a></div></li>
+</ul>
+</details><details class="project">
+<summary>Git Proxy<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-16"><div class="release-meta"><span class="mono">finos/git-proxy</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/git-proxy</span><span class="sep">|</span><span class="mono">v2.0.0-rc.6</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-16</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/git-proxy/tags">link</a></div></li>
+</ul>
+</details><details class="project">
+<summary>Legend<span class="summary-count"> (7)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-13"><div class="release-meta"><span class="mono">—</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono group-count">4 artifacts</span><span class="sep">|</span><span class="mono">13.209.0</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-13</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">finos/legend-studio, finos/legend-query, finos/legend-showcase-server, finos/legend-data-cube</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">13.209.0</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://hub.docker.com/r/finos/legend-showcase-server/tags">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-13"><div class="release-meta"><span class="mono">finos/pylegend</span><span class="sep">|</span><span class="source-tag">docker</span><span class="sep">|</span><span class="mono">finos/pylegend</span><span class="sep">|</span><span class="mono">0.21.0</span><span class="sep">|</span><span>finos</span><span class="sep">|</span><span>2026-04-13</span><span class="sep">|</span><a class="link" href="https://hub.docker.com/r/finos/pylegend/tags">link</a></div></li>
+<li class="release" data-sort-date="2026-04-13"><div class="release-meta"><span class="mono">finos/legend-engine</span><span class="sep">|</span><span class="source-tag">maven, docker</span><span class="sep">|</span><span class="mono group-count">1590 releases</span><span class="sep">|</span><span class="mono">4.127.1 → 4.127.3</span><span class="sep">|</span><span>Maurizio Pillitu (maoo), finos</span><span class="sep">|</span><span>2026-04-13 → 2026-04-17</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.legend.engine:legend-engine, finos/legend-engine-xt-sql-postgres-server, org.finos.legend.engine:legend-engine-core, org.finos.legend.engine:legend-engine-repl, org.finos.legend.engine:legend-engine-config, org.finos.legend.engine:legend-engine-server, org.finos.legend.engine:legend-engine-xt-avro, org.finos.legend.engine:legend-engine-xts-sql, org.finos.legend.engine:legend-engine-xts-xml, org.finos.legend.engine:legend-engine-protocol, org.finos.legend.engine:legend-engine-pure-ide, org.finos.legend.engine:legend-engine-test-mft, org.finos.legend.engine:legend-engine-testable, org.finos.legend.engine:legend-engine-xts-avro, org.finos.legend.engine:legend-engine-xts-daml, org.finos.legend.engine:legend-engine-xts-java, org.finos.legend.engine:legend-engine-xts-json, org.finos.legend.engine:legend-engine-xts-text, org.finos.legend.engine:legend-engine-core-base, org.finos.legend.engine:legend-engine-core-pure</span> <span class="group-more">(+510 more)</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">4.127.1, 4.127.2, 4.127.3</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.legend.engine/legend-engine-xts-serviceStore/4.127.3/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/legend-pure</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">48 artifacts</span><span class="sep">|</span><span class="mono">5.81.1</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-14</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.legend.pure:legend-pure, org.finos.legend.pure:legend-pure-m4, org.finos.legend.pure:legend-pure-dsl, org.finos.legend.pure:legend-pure-core, org.finos.legend.pure:legend-pure-maven, org.finos.legend.pure:legend-pure-store, org.finos.legend.pure:legend-pure-dsl-tds, org.finos.legend.pure:legend-pure-m3-core, org.finos.legend.pure:legend-pure-runtime, org.finos.legend.pure:legend-pure-dsl-path, org.finos.legend.pure:legend-pure-dsl-graph, org.finos.legend.pure:legend-pure-dsl-store, org.finos.legend.pure:legend-pure-dsl-diagram, org.finos.legend.pure:legend-pure-dsl-mapping, org.finos.legend.pure:legend-pure-m2-dsl-tds-pure, org.finos.legend.pure:legend-pure-m2-dsl-path-pure, org.finos.legend.pure:legend-pure-store-relational, org.finos.legend.pure:legend-pure-m2-dsl-graph-pure, org.finos.legend.pure:legend-pure-m2-dsl-store-pure, org.finos.legend.pure:legend-pure-m2-dsl-tds-grammar</span> <span class="group-more">(+28 more)</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">5.81.1</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.legend.pure/legend-pure-store-relational/5.81.1/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/legend-sdlc</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">44 releases</span><span class="sep">|</span><span class="mono">0.222.0 → 0.222.1</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-14 → 2026-04-15</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.legend.sdlc:legend-sdlc, org.finos.legend.sdlc:legend-sdlc-model, org.finos.legend.sdlc:legend-sdlc-server, org.finos.legend.sdlc:legend-sdlc-protocol, org.finos.legend.sdlc:legend-sdlc-server-fs, org.finos.legend.sdlc:legend-sdlc-test-utils, org.finos.legend.sdlc:legend-sdlc-protocol-pure, org.finos.legend.sdlc:legend-sdlc-server-shared, org.finos.legend.sdlc:legend-sdlc-generation-file, org.finos.legend.sdlc:legend-sdlc-test-generation, org.finos.legend.sdlc:legend-sdlc-generation-model, org.finos.legend.sdlc:legend-sdlc-generation-shared, org.finos.legend.sdlc:legend-sdlc-generation-service, org.finos.legend.sdlc:legend-sdlc-entity-maven-plugin, org.finos.legend.sdlc:legend-sdlc-entity-serialization, org.finos.legend.sdlc:legend-sdlc-language-pure-compiler, org.finos.legend.sdlc:legend-sdlc-generation-file-maven-plugin, org.finos.legend.sdlc:legend-sdlc-test-generation-maven-plugin, org.finos.legend.sdlc:legend-sdlc-version-package-maven-plugin, org.finos.legend.sdlc:legend-sdlc-generation-model-maven-plugin</span> <span class="group-more">(+2 more)</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">0.222.0, 0.222.1</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.legend.sdlc/legend-sdlc-version-package-maven-plugin/0.222.1/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/legend-depot</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">34 artifacts</span><span class="sep">|</span><span class="mono">2.89.1</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-14</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.legend.depot:legend-depot, org.finos.legend.depot:legend-depot-model, org.finos.legend.depot:legend-depot-server, org.finos.legend.depot:legend-depot-store-mongo, org.finos.legend.depot:legend-depot-core-tracing, org.finos.legend.depot:legend-depot-entities-api, org.finos.legend.depot:legend-depot-store-server, org.finos.legend.depot:legend-depot-artifacts-api, org.finos.legend.depot:legend-depot-core-data-api, org.finos.legend.depot:legend-depot-core-schedules, org.finos.legend.depot:legend-depot-core-store-api, org.finos.legend.depot:legend-depot-servers-common, org.finos.legend.depot:legend-depot-generations-api, org.finos.legend.depot:legend-depot-entities-services, org.finos.legend.depot:legend-depot-metrics-query-api, org.finos.legend.depot:legend-depot-notifications-api, org.finos.legend.depot:legend-depot-artifacts-services, org.finos.legend.depot:legend-depot-core-authorisation, org.finos.legend.depot:legend-depot-core-data-services, org.finos.legend.depot:legend-depot-core-schedules-api</span> <span class="group-more">(+14 more)</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">2.89.1</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.legend.depot/legend-depot-store-mongo/2.89.1/jar">link</a></div></div></li>
+<li class="release" data-sort-date="2026-04-15"><div class="release-meta"><span class="mono">finos/legend-sdlc</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">22 artifacts</span><span class="sep">|</span><span class="mono">0.220.7</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-15</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.legend.sdlc:legend-sdlc, org.finos.legend.sdlc:legend-sdlc-model, org.finos.legend.sdlc:legend-sdlc-server, org.finos.legend.sdlc:legend-sdlc-protocol, org.finos.legend.sdlc:legend-sdlc-server-fs, org.finos.legend.sdlc:legend-sdlc-test-utils, org.finos.legend.sdlc:legend-sdlc-protocol-pure, org.finos.legend.sdlc:legend-sdlc-server-shared, org.finos.legend.sdlc:legend-sdlc-generation-file, org.finos.legend.sdlc:legend-sdlc-test-generation, org.finos.legend.sdlc:legend-sdlc-generation-model, org.finos.legend.sdlc:legend-sdlc-generation-shared, org.finos.legend.sdlc:legend-sdlc-generation-service, org.finos.legend.sdlc:legend-sdlc-entity-maven-plugin, org.finos.legend.sdlc:legend-sdlc-entity-serialization, org.finos.legend.sdlc:legend-sdlc-language-pure-compiler, org.finos.legend.sdlc:legend-sdlc-generation-file-maven-plugin, org.finos.legend.sdlc:legend-sdlc-test-generation-maven-plugin, org.finos.legend.sdlc:legend-sdlc-version-package-maven-plugin, org.finos.legend.sdlc:legend-sdlc-generation-model-maven-plugin</span> <span class="group-more">(+2 more)</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">0.220.7</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.legend.sdlc/legend-sdlc-version-package-maven-plugin/0.220.7/jar">link</a></div></div></li>
+</ul>
+</details><details class="project">
+<summary>Morphir<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-13"><div class="release-meta"><span class="mono">finos/morphir</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">36 releases</span><span class="sep">|</span><span class="mono">0.5.0-M03-44-ccb692 → 0.5.0-M03-45-e79d72</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-13 → 2026-04-16</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.morphir:morphir-lib-interop_sjs1_3, org.finos.morphir:morphir-extensibility_sjs1_3, org.finos.morphir:morphir_sjs1_3, org.finos.morphir:morphir-interop-zio-json_sjs1_3, org.finos.morphir:morphir-contrib-knowledge_sjs1_3, org.finos.morphir:morphir-interop-borer_sjs1_3, org.finos.morphir:morphir-extensibility_3, org.finos.morphir:morphir-lib-interop_3, org.finos.morphir:morphir-runtime_sjs1_3, org.finos.morphir:morphir-tools_sjs1_3, org.finos.morphir:morphir-tests_sjs1_3, org.finos.morphir:morphir-contrib-knowledge_3, org.finos.morphir:morphir-interop-borer_3, org.finos.morphir:morphir-interop-zio-json_3, org.finos.morphir:morphir-tools_3, org.finos.morphir:morphir-runtime_3, org.finos.morphir:morphir-tests_3, org.finos.morphir:morphir_3</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">0.5.0-M03-44-ccb692, 0.5.0-M03-45-e79d72</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.morphir/morphir_3/0.5.0-M03-45-e79d72/jar">link</a></div></div></li>
+</ul>
+</details><details class="project">
+<summary>Regular Table<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-14"><div class="release-meta"><span class="mono">finos/regular-table</span><span class="sep">|</span><span class="source-tag">npm</span><span class="sep">|</span><span class="mono">regular-table</span><span class="sep">|</span><span class="mono">0.8.4</span><span class="sep">|</span><span>texodus</span><span class="sep">|</span><span>2026-04-14</span><span class="sep">|</span><a class="link" href="https://www.npmjs.com/package/regular-table">link</a></div><p class="description">A regular &lt;table&gt;, for an async and virtual data model.</p></li>
+</ul>
+</details><details class="project">
+<summary>Rune<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-17" data-highlight="major"><div class="release-meta"><span class="mono">—</span><span class="sep">|</span><span class="source-tag">pypi</span><span class="sep">|</span><span class="mono">rune-runtime</span><span class="sep">|</span><span class="mono">2.0.0</span><span class="sep">|</span><span>Daniel Schwartz, Plamen Neykov, Others (See AUTHORS)</span><span class="sep">|</span><span>2026-04-17</span><span class="sep">|</span><a class="link" href="https://files.pythonhosted.org/packages/cb/ac/33eff65d5723ad781a34fcca3a3add24f30b97a896e1bd9f73c814f6a06c/rune_runtime-2.0.0.tar.gz">link</a></div><p class="description">rune-runtime: the Rune DSL runtime for Python</p></li>
+</ul>
+</details><details class="project">
+<summary>Symphony Electron<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-13"><div class="release-meta"><span class="mono">finos/SymphonyElectron</span><span class="sep">|</span><span class="source-tag">github</span><span class="sep">|</span><span class="mono">SymphonyElectron</span><span class="sep">|</span><span class="mono">v26.2.0</span><span class="sep">|</span><span>KiranNiranjan</span><span class="sep">|</span><span>2026-04-13</span><span class="sep">|</span><a class="link" href="https://github.com/finos/SymphonyElectron/releases/tag/v26.2.0">link</a></div><p class="description">What&#x27;s Changed SDA-5012 - Bump electron, SDA and node version by @KiranNiranjan in https://github.com/finos/SymphonyElectron/pull/2485 SDA-4665 - Add support for Custom timezone via command line by @KiranNiranjan in https://github.com/finos/SymphonyElectron/pull/2490 SDA-4993 - Fix logging issue…</p></li>
+</ul>
+</details><details class="project">
+<summary>VUU<span class="summary-count"> (1)</span></summary>
+<ul class="releases">
+<li class="release" data-sort-date="2026-04-16" data-highlight="major"><div class="release-meta"><span class="mono">finos/vuu</span><span class="sep">|</span><span class="source-tag">maven</span><span class="sep">|</span><span class="mono group-count">7 artifacts</span><span class="sep">|</span><span class="mono">3.0.0</span><span class="sep">|</span><span>—</span><span class="sep">|</span><span>2026-04-16</span><span class="sep">|</span><span>multiple</span></div><div class="group-artifacts"><div class="group-artifact"><span class="group-label">Artifacts:</span> <span class="mono">org.finos.vuu.plugin:virtualized-table-plugin, org.finos.vuu:vuu, org.finos.vuu:vuu-ui, org.finos.vuu:toolbox, org.finos.vuu:vuu-parent, org.finos.vuu:vuu-java, org.finos.vuu:plugin</span><span class="sep">|</span><span class="group-label">Versions:</span> <span class="mono">3.0.0</span><span class="sep">|</span><span class="group-label">Link:</span> <a class="link" href="https://search.maven.org/artifact/org.finos.vuu/vuu-ui/3.0.0/jar">link</a></div></div></li>
+</ul>
+</details>
+</div>
+</main>
+</div>
+</body>
+</html>
