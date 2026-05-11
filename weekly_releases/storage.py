@@ -6,6 +6,13 @@ from datetime import date
 from itertools import groupby
 from pathlib import Path
 
+from weekly_releases.grouping import (
+    ReleaseGroup,
+    cluster_releases,
+    displayed_artifacts,
+    render_group_markdown,
+    select_highlight_groups,
+)
 from weekly_releases.models import Release
 from weekly_releases.timebox import OutputFormat, iso_week_file
 
@@ -33,14 +40,39 @@ _WEEKLY_PROJECT_BLOCK_RE = re.compile(
     r'<ul class="releases">\s*(?P<ulbody>.*?)\s*</ul>\s*</details>',
     re.DOTALL | re.IGNORECASE,
 )
+# Outer ``<li class="release">`` (singleton or grouped) — tolerates extra
+# attributes such as ``data-sort-date``. Sub-items inside grouped rows use
+# ``<div class="group-artifact">`` (not ``<li>``) so this non-greedy match still
+# closes at the correct outer ``</li>``. The explicit closing ``"`` after
+# ``release`` prevents accidental matches against ``class="release-foo"``.
 _RELEASE_LI_RE = re.compile(
-    r'<li class="release">.*?</li>',
+    r'<li class="release"[^>]*>.*?</li>',
     re.DOTALL | re.IGNORECASE,
 )
 _SUMMARY_COUNT_SPAN_RE = re.compile(
     r'<span class="summary-count">\s*\([^)]*\)\s*</span>',
     re.IGNORECASE | re.DOTALL,
 )
+# Preferred sort key for each ``<li class="release">``: the explicit
+# ``data-sort-date="YYYY-MM-DD"`` attribute (= earliest underlying release date).
+_RELEASE_LI_DATA_SORT_RE = re.compile(
+    r'<li class="release"[^>]*\sdata-sort-date="(\d{4}-\d{2}-\d{2})"',
+    re.IGNORECASE,
+)
+# Highlight marker on a ``<li class="release">`` row (``"major"`` or ``"minor"``).
+# Used by the calendar-month rollup to lift highlighted rows into its own
+# ``<details class="highlights">`` block at the top of the page. Only majors
+# are highlighted now; legacy ``data-highlight="minor"`` rows in older weekly
+# HTML files are intentionally NOT matched here.
+_RELEASE_LI_HIGHLIGHT_RE = re.compile(
+    r'<li class="release"[^>]*\sdata-highlight="(major)"',
+    re.IGNORECASE,
+)
+# Anchor used by the calendar rollup to inject the project label into a lifted
+# highlighted ``<li>``: the row starts ``<div class="release-meta">…``.
+_RELEASE_META_OPEN_RE = re.compile(r'<div class="release-meta">', re.IGNORECASE)
+# Legacy fallback: the date span just before the singleton ``link`` anchor in
+# old on-disk weekly HTML that predates ``data-sort-date``.
 _RELEASE_DATE_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2})</span>\s*<span class=\"sep\">\|</span>\s*<a class=\"link\"",
     re.IGNORECASE,
@@ -185,10 +217,94 @@ a.link:hover { text-decoration: underline; }
   border-radius: var(--radius);
   border: 1px dashed var(--border);
 }
+.group-count { font-weight: 600; }
+.group-artifacts {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 4px;
+}
+.group-artifact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.5rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.group-artifact .sep { color: var(--border); user-select: none; }
+.group-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.group-more {
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--muted);
+}
+details.highlights {
+  margin: 0 0 1.5rem;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+details.highlights > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.85rem 1.1rem;
+  font-weight: 650;
+  font-size: 1rem;
+  color: #9a3412;
+  background: linear-gradient(to bottom, #ffedd5, #fed7aa);
+  user-select: none;
+  letter-spacing: -0.01em;
+}
+details.highlights > summary::-webkit-details-marker { display: none; }
+details.highlights > summary::marker { content: ""; }
+details.highlights[open] > summary {
+  border-bottom: 1px solid #fdba74;
+}
+details.highlights > summary:hover {
+  background: linear-gradient(to bottom, #ffe4b5, #fdba74);
+}
+details.highlights .release {
+  border-bottom: 1px solid #fed7aa;
+}
+details.highlights .release:last-child { border-bottom: none; }
+.release-project {
+  color: #0f172a;
+  font-weight: 600;
+}
 """
 
 
-def _release_li_html(rel: Release) -> str:
+def _highlight_attr(group: ReleaseGroup) -> str:
+    """Optional ``data-highlight="major|minor"`` attribute fragment for a row."""
+    kind = group.highlight_kind
+    if kind is None:
+        return ""
+    return f' data-highlight="{html.escape(kind)}"'
+
+
+def _project_label_span(project: str) -> str:
+    """Leading ``<span class="release-project mono">…</span>|`` meta column."""
+    return (
+        f'<span class="release-project mono">{html.escape(project)}</span>'
+        '<span class="sep">|</span>'
+    )
+
+
+def _singleton_li_html(group: ReleaseGroup, *, include_project: bool = False) -> str:
+    rel = group.members[0]
     date_value = html.escape(rel.released_at.date().isoformat())
     gh = html.escape(rel.github_repo) if rel.github_repo else "—"
     artifact = html.escape(rel.artifact)
@@ -212,12 +328,117 @@ def _release_li_html(rel: Release) -> str:
         '<span class="sep">|</span>',
         f'<a class="link" href="{url_esc}">link</a>',
     ]
-    meta = f'<div class="release-meta">{"".join(parts)}</div>'
+    project_prefix = _project_label_span(group.project) if include_project else ""
+    meta = f'<div class="release-meta">{project_prefix}{"".join(parts)}</div>'
     desc_block = ""
     if rel.description:
         body = html.escape(rel.description).replace("\n", "<br>\n")
         desc_block = f'<p class="description">{body}</p>'
-    return f'<li class="release">{meta}{desc_block}</li>'
+    return (
+        f'<li class="release" data-sort-date="{date_value}"'
+        f"{_highlight_attr(group)}>"
+        f"{meta}{desc_block}</li>"
+    )
+
+
+def _grouped_li_html(group: ReleaseGroup, *, include_project: bool = False) -> str:
+    sort_date = html.escape(group.sort_date_iso)
+    gh_repo = group.github_repo_or_none
+    gh = html.escape(gh_repo) if gh_repo else "—"
+    sources = html.escape(", ".join(group.sources))
+    version = html.escape(group.version_label)
+    date_label = html.escape(group.date_label)
+    pub_raw = group.publishers_merged if group.publishers_merged else "—"
+    pub = html.escape(pub_raw)
+    if group.is_pass1:
+        count_label = f"{len(group.members)} artifacts"
+    else:
+        count_label = f"{len(group.members)} releases"
+    count_esc = html.escape(count_label)
+    parts = [
+        f'<span class="mono">{gh}</span>',
+        '<span class="sep">|</span>',
+        f'<span class="source-tag">{sources}</span>',
+        '<span class="sep">|</span>',
+        f'<span class="mono group-count">{count_esc}</span>',
+        '<span class="sep">|</span>',
+        f'<span class="mono">{version}</span>',
+        '<span class="sep">|</span>',
+        f"<span>{pub}</span>",
+        '<span class="sep">|</span>',
+        f"<span>{date_label}</span>",
+        '<span class="sep">|</span>',
+        "<span>multiple</span>",
+    ]
+    project_prefix = _project_label_span(group.project) if include_project else ""
+    meta = f'<div class="release-meta">{project_prefix}{"".join(parts)}</div>'
+
+    desc_block = ""
+    desc = group.description_first_nonempty
+    if desc:
+        body = html.escape(desc).replace("\n", "<br>\n")
+        desc_block = f'<p class="description">{body}</p>'
+
+    visible_artifacts, hidden_count = displayed_artifacts(group)
+    artifacts_csv = html.escape(", ".join(visible_artifacts))
+    more_span = (
+        f' <span class="group-more">(+{hidden_count} more)</span>'
+        if hidden_count
+        else ""
+    )
+    versions_csv = html.escape(", ".join(group.versions))
+    last_url = html.escape(group.members_sorted[-1].url, quote=True)
+    sub_block = (
+        '<div class="group-artifacts">'
+        '<div class="group-artifact">'
+        '<span class="group-label">Artifacts:</span> '
+        f'<span class="mono">{artifacts_csv}</span>'
+        f"{more_span}"
+        '<span class="sep">|</span>'
+        '<span class="group-label">Versions:</span> '
+        f'<span class="mono">{versions_csv}</span>'
+        '<span class="sep">|</span>'
+        '<span class="group-label">Link:</span> '
+        f'<a class="link" href="{last_url}">link</a>'
+        "</div>"
+        "</div>"
+    )
+
+    return (
+        f'<li class="release" data-sort-date="{sort_date}"'
+        f"{_highlight_attr(group)}>"
+        f"{meta}{desc_block}{sub_block}"
+        "</li>"
+    )
+
+
+def _release_li_html(group: ReleaseGroup, *, include_project: bool = False) -> str:
+    if group.is_singleton:
+        return _singleton_li_html(group, include_project=include_project)
+    return _grouped_li_html(group, include_project=include_project)
+
+
+def _render_highlights_section_html(groups: list[ReleaseGroup]) -> str:
+    """Top-of-page collapsible ``<details class="highlights">`` block.
+
+    Returns an empty string when no group qualifies. The lifted ``<li>`` rows
+    mirror the per-project rows for the same group with one addition: each
+    row's meta starts with a ``<span class="release-project mono">`` column so
+    the reader can tell which project the highlight belongs to without
+    expanding any project section.
+    """
+    highlights = select_highlight_groups(groups)
+    if not highlights:
+        return ""
+    n = len(highlights)
+    lis = "\n".join(_release_li_html(g, include_project=True) for g in highlights)
+    return (
+        '<details class="highlights">\n'
+        "<summary>Highlights"
+        f'<span class="summary-count"> ({n})</span></summary>\n'
+        f'<ul class="releases">\n{lis}\n</ul>\n'
+        "</details>\n"
+    )
 
 
 def render_html(target_date: date, releases: list[Release]) -> str:
@@ -228,15 +449,16 @@ def render_html(target_date: date, releases: list[Release]) -> str:
     if not releases:
         body_inner = '<p class="empty">No releases found in this period.</p>'
     else:
+        groups = cluster_releases(releases)
         blocks: list[str] = []
-        ordered = sorted(
-            releases, key=lambda r: (r.project.lower(), r.project, r.released_at)
-        )
-        for project, group in groupby(ordered, key=lambda r: r.project):
-            group_list = list(group)
+        # ``cluster_releases`` already returns groups sorted by
+        # (project.casefold(), project, sort_datetime), so ``groupby`` produces
+        # one section per project in the right order.
+        for project, project_groups in groupby(groups, key=lambda g: g.project):
+            group_list = list(project_groups)
             n = len(group_list)
             proj_esc = html.escape(project)
-            lis = "\n".join(_release_li_html(r) for r in group_list)
+            lis = "\n".join(_release_li_html(g) for g in group_list)
             blocks.append(
                 f'<details class="project">\n'
                 f"<summary>{proj_esc}"
@@ -244,7 +466,10 @@ def render_html(target_date: date, releases: list[Release]) -> str:
                 f'<ul class="releases">\n{lis}\n</ul>\n'
                 f"</details>"
             )
-        body_inner = f'<div class="projects">\n{"".join(blocks)}\n</div>'
+        highlights_section = _render_highlights_section_html(groups)
+        body_inner = (
+            f"{highlights_section}" f'<div class="projects">\n{"".join(blocks)}\n</div>'
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -278,16 +503,24 @@ def render_markdown(target_date: date, releases: list[Release]) -> str:
     if not releases:
         lines.append("_No releases found in this period._")
     else:
-        ordered = sorted(
-            releases, key=lambda r: (r.project.lower(), r.project, r.released_at)
-        )
-        for project, group in groupby(ordered, key=lambda r: r.project):
+        groups = cluster_releases(releases)
+        highlights = select_highlight_groups(groups)
+        if highlights:
+            lines.append("")
+            lines.append("<details>")
+            lines.append("<summary>Highlights</summary>")
+            lines.append("")
+            for grp in highlights:
+                lines.append(render_group_markdown(grp, include_project=True))
+            lines.append("")
+            lines.append("</details>")
+        for project, project_groups in groupby(groups, key=lambda g: g.project):
             lines.append("")
             lines.append("<details>")
             lines.append(f"<summary>{html.escape(project)}</summary>")
             lines.append("")
-            for rel in group:
-                lines.append(rel.as_markdown_line(omit_project=True))
+            for grp in project_groups:
+                lines.append(render_group_markdown(grp))
             lines.append("")
             lines.append("</details>")
     lines.append("")
@@ -366,7 +599,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   font-weight: 650;
   color: #0f172a;
 }
-.week-links {
+.week-links,
+.month-links {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -374,7 +608,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   flex-wrap: wrap;
   gap: 0.45rem 0.65rem;
 }
-.week-links a {
+.week-links a,
+.month-links a {
   display: inline-block;
   padding: 0.35rem 0.65rem;
   border-radius: 6px;
@@ -385,7 +620,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   font-weight: 500;
   font-size: 0.92rem;
 }
-.week-links a:hover {
+.week-links a:hover,
+.month-links a:hover {
   border-color: var(--accent);
   background: #eff6ff;
 }
@@ -411,36 +647,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   letter-spacing: 0.045em;
   color: var(--muted);
 }
-.month-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-.month-block h4 {
-  margin: 0 0 0.4rem;
-  font-size: 0.98rem;
-  font-weight: 600;
-  color: #0f172a;
-}
-.browse-column .week-links { margin-top: 0; }
-.month-page-link {
-  margin: 0;
-}
-.month-page-link a {
-  display: inline-block;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: #f8fafc;
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.92rem;
-}
-.month-page-link a:hover {
-  border-color: var(--accent);
-  background: #eff6ff;
-}
+.browse-column .week-links,
+.browse-column .month-links { margin-top: 0; }
 """
 
 
@@ -484,6 +692,16 @@ def _group_weeks_by_calendar_month(
 
 
 def _release_li_sort_key(li_html: str) -> str:
+    """Date used to order ``<li class="release">`` rows in calendar rollups.
+
+    Prefers the explicit ``data-sort-date="YYYY-MM-DD"`` attribute (= earliest
+    underlying release date for grouped rows). Falls back to the meta-row date
+    span for backward compatibility with weekly HTML written before the
+    attribute existed.
+    """
+    m = _RELEASE_LI_DATA_SORT_RE.search(li_html)
+    if m:
+        return m.group(1)
     m = _RELEASE_DATE_RE.search(li_html)
     return m.group(1) if m else ""
 
@@ -516,8 +734,52 @@ def merge_calendar_month_project_lists(
     return merged
 
 
+def _inject_project_label_into_li(li_html: str, project_label_html: str) -> str:
+    """Insert a leading ``<span class="release-project mono">…</span>|`` column.
+
+    ``project_label_html`` is taken verbatim from the weekly ``<details
+    class="project"><summary>…</summary>`` payload (which is already
+    HTML-escaped by ``render_html``), so it is splice-safe.
+    """
+    label_span = (
+        f'<span class="release-project mono">{project_label_html}</span>'
+        '<span class="sep">|</span>'
+    )
+    return _RELEASE_META_OPEN_RE.sub(
+        f'<div class="release-meta">{label_span}', li_html, count=1
+    )
+
+
+def collect_highlighted_lis(per_week: list[dict[str, list[str]]]) -> list[str]:
+    """Flat list of major-highlighted ``<li class="release">`` rows across maps.
+
+    Picks every row carrying ``data-highlight="major"`` from the parsed weekly
+    project maps, **injects the project label** (taken from the enclosing
+    ``<details class="project"><summary>`` so calendar Highlights rows look
+    the same as weekly Highlights rows) and orders the result by
+    ``data-sort-date`` ascending. Weekly files written before the
+    ``data-highlight`` attribute existed contribute nothing; legacy
+    ``data-highlight="minor"`` rows from older weekly HTML are intentionally
+    **ignored** because minor releases are no longer highlighted.
+    """
+    flat: list[tuple[str, str]] = []
+    for week_map in per_week:
+        for project_label_html, items in week_map.items():
+            for li in items:
+                if _RELEASE_LI_HIGHLIGHT_RE.search(li) is None:
+                    continue
+                augmented = _inject_project_label_into_li(li, project_label_html)
+                flat.append((_release_li_sort_key(li), augmented))
+    flat.sort(key=lambda t: t[0])
+    return [li for _, li in flat]
+
+
 def render_calendar_month_html(
-    calendar_year: int, calendar_month: int, projects: dict[str, list[str]]
+    calendar_year: int,
+    calendar_month: int,
+    projects: dict[str, list[str]],
+    *,
+    highlighted: list[str] | None = None,
 ) -> str:
     """Standalone HTML for one Gregorian month (same layout as ``render_html``)."""
     month_name = _MONTH_NAMES_EN[calendar_month - 1]
@@ -539,7 +801,20 @@ def render_calendar_month_html(
                 f'<ul class="releases">\n{lis}\n</ul>\n'
                 f"</details>"
             )
-        body_inner = f'<div class="projects">\n{"".join(blocks)}\n</div>'
+        highlights_html = ""
+        if highlighted:
+            joined = "\n".join(highlighted)
+            n = len(highlighted)
+            highlights_html = (
+                '<details class="highlights">\n'
+                "<summary>Highlights"
+                f'<span class="summary-count"> ({n})</span></summary>\n'
+                f'<ul class="releases">\n{joined}\n</ul>\n'
+                "</details>\n"
+            )
+        body_inner = (
+            f"{highlights_html}" f'<div class="projects">\n{"".join(blocks)}\n</div>'
+        )
     header_p = (
         "FINOS community releases (UTC) for this calendar month, grouped by project. "
         "Built from ISO week HTML files whose Thursday falls in this month. "
@@ -577,8 +852,8 @@ def _calendar_month_href(iso_year: int, cal_year: int, cal_month: int) -> str:
 
 def _render_index_month_page_link(iso_year: int, cal_year: int, cal_month: int) -> str:
     href = html.escape(_calendar_month_href(iso_year, cal_year, cal_month), quote=True)
-    label = html.escape(f"{_MONTH_NAMES_EN[cal_month - 1]} {cal_year} — all releases")
-    return f'<p class="month-page-link"><a href="{href}">{label}</a></p>'
+    label = html.escape(f"{_MONTH_NAMES_EN[cal_month - 1]} {cal_year}")
+    return f'<li><a href="{href}">{label}</a></li>'
 
 
 def write_calendar_month_pages(base_dir: Path) -> None:
@@ -599,9 +874,11 @@ def write_calendar_month_pages(base_dir: Path) -> None:
                     continue
                 per_week.append(parse_weekly_html_project_blocks(text))
             merged = merge_calendar_month_project_lists(per_week)
+            highlighted = collect_highlighted_lis(per_week)
             out_path = base_dir / str(iso_year) / f"calendar-{gy}-{gm:02d}.html"
             out_path.write_text(
-                render_calendar_month_html(gy, gm, merged), encoding="utf-8"
+                render_calendar_month_html(gy, gm, merged, highlighted=highlighted),
+                encoding="utf-8",
             )
 
 
@@ -634,20 +911,17 @@ def render_releases_index_html(base_dir: Path) -> str:
         for year, weeks in rows:
             y_esc = html.escape(str(year))
             if weeks:
-                month_chunks: list[str] = []
-                for (gy, gm), _wks in _group_weeks_by_calendar_month(year, weeks):
-                    label_esc = html.escape(f"{_MONTH_NAMES_EN[gm - 1]} {gy}")
-                    month_chunks.append(
-                        f'<div class="month-block">\n<h4>{label_esc}</h4>\n'
-                        f"{_render_index_month_page_link(year, gy, gm)}\n</div>"
-                    )
-                months_html = "\n".join(month_chunks)
+                month_items = [
+                    _render_index_month_page_link(year, gy, gm)
+                    for (gy, gm), _wks in _group_weeks_by_calendar_month(year, weeks)
+                ]
+                months_html = f'<ul class="month-links">\n{"".join(month_items)}\n</ul>'
                 weeks_html = _render_index_week_links(year, weeks)
                 inner = (
                     f'<div class="year-browse">\n'
                     f'<div class="browse-column">\n'
                     f'<h3 class="browse-heading">By month</h3>\n'
-                    f'<div class="month-groups">\n{months_html}\n</div>\n'
+                    f"{months_html}\n"
                     f"</div>\n"
                     f'<div class="browse-column">\n'
                     f'<h3 class="browse-heading">By week</h3>\n'

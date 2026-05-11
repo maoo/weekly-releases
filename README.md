@@ -7,6 +7,12 @@ Weekly Releases is a Python ([uv](https://docs.astral.sh/uv/)-based) crawler tha
 
 The normative description of **time windows**, **GitHub authentication**, **sources**, **HTML/Markdown layout**, **release descriptions**, and **landscape mapping** is **[specs.md](specs.md)**. This README focuses on install, usage, and CI.
 
+## Browsing FINOS releases
+
+FINOS Releases can be browsed by month or by week, starting from January 1st 2026.
+
+Each release reports the source (docker, npmjs, maven, pipy or github), coordinates, release date, publisher (with full name, if available), description (if available) and the link to the release.
+
 ## Requirements
 
 - Python 3.11+

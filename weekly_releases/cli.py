@@ -6,6 +6,7 @@ from typing import cast
 
 import typer
 
+from weekly_releases.grouping import cluster_releases, render_group_markdown
 from weekly_releases.runner import run
 from weekly_releases.timebox import OutputFormat
 
@@ -67,8 +68,8 @@ def scan(
         typer.echo(
             f"Dry run: collected {len(result.releases)} releases for the current week"
         )
-        for rel in sorted(result.releases, key=lambda r: r.released_at):
-            typer.echo(rel.as_markdown_line())
+        for group in cluster_releases(result.releases):
+            typer.echo(render_group_markdown(group))
         return
 
     if current_week:

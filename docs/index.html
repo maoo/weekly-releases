@@ -53,7 +53,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   font-weight: 650;
   color: #0f172a;
 }
-.week-links {
+.week-links,
+.month-links {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -61,7 +62,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   flex-wrap: wrap;
   gap: 0.45rem 0.65rem;
 }
-.week-links a {
+.week-links a,
+.month-links a {
   display: inline-block;
   padding: 0.35rem 0.65rem;
   border-radius: 6px;
@@ -72,7 +74,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   font-weight: 500;
   font-size: 0.92rem;
 }
-.week-links a:hover {
+.week-links a:hover,
+.month-links a:hover {
   border-color: var(--accent);
   background: #eff6ff;
 }
@@ -98,36 +101,8 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
   letter-spacing: 0.045em;
   color: var(--muted);
 }
-.month-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-.month-block h4 {
-  margin: 0 0 0.4rem;
-  font-size: 0.98rem;
-  font-weight: 600;
-  color: #0f172a;
-}
-.browse-column .week-links { margin-top: 0; }
-.month-page-link {
-  margin: 0;
-}
-.month-page-link a {
-  display: inline-block;
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: #f8fafc;
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-  font-size: 0.92rem;
-}
-.month-page-link a:hover {
-  border-color: var(--accent);
-  background: #eff6ff;
-}
+.browse-column .week-links,
+.browse-column .month-links { margin-top: 0; }
 
 </style>
 </head>
@@ -143,28 +118,9 @@ header p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 <div class="year-browse">
 <div class="browse-column">
 <h3 class="browse-heading">By month</h3>
-<div class="month-groups">
-<div class="month-block">
-<h4>January 2026</h4>
-<p class="month-page-link"><a href="2026/calendar-2026-01.html">January 2026 — all releases</a></p>
-</div>
-<div class="month-block">
-<h4>February 2026</h4>
-<p class="month-page-link"><a href="2026/calendar-2026-02.html">February 2026 — all releases</a></p>
-</div>
-<div class="month-block">
-<h4>March 2026</h4>
-<p class="month-page-link"><a href="2026/calendar-2026-03.html">March 2026 — all releases</a></p>
-</div>
-<div class="month-block">
-<h4>April 2026</h4>
-<p class="month-page-link"><a href="2026/calendar-2026-04.html">April 2026 — all releases</a></p>
-</div>
-<div class="month-block">
-<h4>May 2026</h4>
-<p class="month-page-link"><a href="2026/calendar-2026-05.html">May 2026 — all releases</a></p>
-</div>
-</div>
+<ul class="month-links">
+<li><a href="2026/calendar-2026-01.html">January 2026</a></li><li><a href="2026/calendar-2026-02.html">February 2026</a></li><li><a href="2026/calendar-2026-03.html">March 2026</a></li><li><a href="2026/calendar-2026-04.html">April 2026</a></li><li><a href="2026/calendar-2026-05.html">May 2026</a></li>
+</ul>
 </div>
 <div class="browse-column">
 <h3 class="browse-heading">By week</h3>

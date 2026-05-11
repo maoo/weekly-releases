@@ -47,6 +47,66 @@ def test_cli_dry_run_echoes_each_release_line(monkeypatch):
     assert "finos/r" in result.stdout
 
 
+def test_cli_dry_run_groups_clustered_releases(monkeypatch):
+    runner = CliRunner()
+    when = datetime(2026, 1, 5, tzinfo=UTC)
+    rels = [
+        Release(
+            project="Proj",
+            source="maven",
+            artifact="org.finos.foo:bar",
+            version="1.2.0",
+            url="https://example.test/bar",
+            released_at=when,
+            github_repo="finos/foo",
+        ),
+        Release(
+            project="Proj",
+            source="maven",
+            artifact="org.finos.foo:baz",
+            version="1.2.0",
+            url="https://example.test/baz",
+            released_at=when,
+            github_repo="finos/foo",
+        ),
+        Release(
+            project="Proj",
+            source="docker",
+            artifact="finos/foo",
+            version="1.2.0",
+            url="https://hub.docker.com/r/finos/foo/tags",
+            released_at=when,
+            github_repo="finos/foo",
+        ),
+    ]
+
+    class _Result:
+        output_files: list = []
+        releases = rels
+
+    monkeypatch.setattr("weekly_releases.cli.run", lambda **kwargs: _Result())
+    result = runner.invoke(app, ["--today", "2026-01-08", "--dry-run"])
+    assert result.exit_code == 0
+    assert "Dry run: collected 3 releases for the current week" in result.stdout
+    # Three raw releases collapse to one printed group header bullet.
+    out = result.stdout
+    assert out.count("\n- ") == 1
+    assert "**3 artifacts**" in out
+    # A single compact summary line follows; not one bullet per member.
+    sub_bullets = [line for line in out.splitlines() if line.startswith("  - ")]
+    assert len(sub_bullets) == 1
+    summary = sub_bullets[0]
+    assert "Artifacts: " in summary
+    assert "org.finos.foo:bar" in summary
+    assert "org.finos.foo:baz" in summary
+    assert "finos/foo" in summary
+    assert "Versions: `1.2.0`" in summary
+    # Link points at the latest member; here all three share a date so
+    # members_sorted breaks the tie alphabetically by artifact, putting
+    # "org.finos.foo:baz" last.
+    assert summary.endswith("| Link: [link](https://example.test/baz)")
+
+
 def test_cli_write_mode_with_missing_weeks(monkeypatch, tmp_path):
     runner = CliRunner()
 
