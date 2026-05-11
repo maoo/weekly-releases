@@ -246,9 +246,7 @@ def run(
     # Avoid duplicating releases when backfill already crawled a window that includes
     # the current ISO week; only substitute when the refresh was the sole write.
     merged_releases = (
-        extra_releases
-        if extra_files and not result.output_files
-        else result.releases
+        extra_releases if extra_files and not result.output_files else result.releases
     )
     return RunResult(
         output_files=[*result.output_files, *extra_files],

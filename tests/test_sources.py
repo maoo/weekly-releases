@@ -711,7 +711,9 @@ def test_maven_contributors_label_parent_pom_developers():
             parent_url: FakeResponse(text_data=parent_pom),
         }
     )
-    out = _maven_contributors_label(client, leaf_g, leaf_a, leaf_v, leaf_pom_text=leaf_pom)
+    out = _maven_contributors_label(
+        client, leaf_g, leaf_a, leaf_v, leaf_pom_text=leaf_pom
+    )
     assert out == "Steve Heron, Chris Stevenson"
 
 

@@ -137,9 +137,7 @@ landscape:
         index.project_for_asset("finos/legend-engine-pure-ide-light-http-server")
         == "Legend"
     )
-    assert (
-        index.project_for_asset("finos/legend-engine-server-http-server") == "Legend"
-    )
+    assert index.project_for_asset("finos/legend-engine-server-http-server") == "Legend"
 
 
 def test_parse_landscape_npmjs_finos_slash_form_maps_at_finos_packages():

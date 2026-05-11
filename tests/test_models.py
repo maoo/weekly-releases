@@ -2,7 +2,10 @@ from weekly_releases.models import format_publisher_label
 
 
 def test_format_publisher_label_name_and_handle():
-    assert format_publisher_label("Ada Lovelace", "alovelace") == "Ada Lovelace (alovelace)"
+    assert (
+        format_publisher_label("Ada Lovelace", "alovelace")
+        == "Ada Lovelace (alovelace)"
+    )
 
 
 def test_format_publisher_label_handle_only():
