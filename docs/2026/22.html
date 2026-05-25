@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FINOS releases for 2026 week 22</title>
+<style>
+
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --text: #1e293b;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 1.5rem clamp(1rem, 4vw, 2.5rem) 3rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  background: linear-gradient(165deg, #eef2ff 0%, var(--bg) 38%, var(--bg) 100%);
+  min-height: 100vh;
+}
+.wrap {
+  max-width: 52rem;
+  margin: 0 auto;
+}
+header {
+  margin-bottom: 1.75rem;
+}
+header h1 {
+  margin: 0 0 0.35rem;
+  font-size: clamp(1.35rem, 3vw, 1.75rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.projects {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+details.project {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+details.project > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.85rem 1.1rem;
+  font-weight: 600;
+  font-size: 1rem;
+  color: #0f172a;
+  background: linear-gradient(to bottom, #fafbff, #f1f5f9);
+  border-bottom: 1px solid transparent;
+  user-select: none;
+}
+details.project > summary::-webkit-details-marker { display: none; }
+details.project > summary::marker { content: ""; }
+details.project[open] > summary {
+  border-bottom-color: var(--border);
+  background: var(--accent-soft);
+}
+details.project > summary:hover {
+  background: #e8eef7;
+}
+details.project[open] > summary:hover {
+  background: #e0eafc;
+}
+.summary-count {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.releases {
+  margin: 0;
+  padding: 0.5rem 0 0.25rem;
+  list-style: none;
+}
+.release {
+  padding: 0.85rem 1.1rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+.release:last-child { border-bottom: none; }
+.release-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+.release-meta .sep { color: var(--border); user-select: none; }
+.mono {
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.84em;
+  background: #f8fafc;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  border: 1px solid #e8ecf1;
+}
+.source-tag {
+  text-transform: lowercase;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+a.link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+a.link:hover { text-decoration: underline; }
+.description {
+  margin: 0.55rem 0 0;
+  padding-left: 0.75rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  border-left: 3px solid #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.empty {
+  padding: 2rem 1.25rem;
+  text-align: center;
+  color: var(--muted);
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+}
+.group-count { font-weight: 600; }
+.group-artifacts {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 4px;
+}
+.group-artifact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.5rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+.group-artifact .sep { color: var(--border); user-select: none; }
+.group-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.group-more {
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--muted);
+}
+details.highlights {
+  margin: 0 0 1.5rem;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+details.highlights > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.85rem 1.1rem;
+  font-weight: 650;
+  font-size: 1rem;
+  color: #9a3412;
+  background: linear-gradient(to bottom, #ffedd5, #fed7aa);
+  user-select: none;
+  letter-spacing: -0.01em;
+}
+details.highlights > summary::-webkit-details-marker { display: none; }
+details.highlights > summary::marker { content: ""; }
+details.highlights[open] > summary {
+  border-bottom: 1px solid #fdba74;
+}
+details.highlights > summary:hover {
+  background: linear-gradient(to bottom, #ffe4b5, #fdba74);
+}
+details.highlights .release {
+  border-bottom: 1px solid #fed7aa;
+}
+details.highlights .release:last-child { border-bottom: none; }
+.release-project {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<h1>FINOS releases for 2026 week 22</h1>
+<p>FINOS community releases (UTC), grouped by project. Release rows show
+<strong>contributors</strong> (comma-separated when known) in the fifth column.</p>
+</header>
+<main>
+<p class="empty">No releases found in this period.</p>
+</main>
+</div>
+</body>
+</html>
